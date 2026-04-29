@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CFL Logistics - Automated Quoter</title>
+    <!-- Google Fonts (local fallback included in CSS) -->
+    <link rel="stylesheet" href="libs/inter-font.css">
+    <!-- jsPDF and AutoTable (local) -->
+    <script src="libs/jspdf.umd.min.js"></script>
+    <script src="libs/jspdf.plugin.autotable.min.js"></script>
+    <!-- PapaParse, Chart.js, html2pdf (local) -->
+    <script src="libs/papaparse.min.js"></script>
+    <script src="libs/chart.min.js"></script>
+    <script src="libs/html2pdf.bundle.min.js"></script>
+    <link rel="stylesheet" href="styles.css?v=3">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <!-- Placeholder text logo until provided -->
+                    <h1>CFL<span class="highlight">LOGISTICS</span></h1>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" id="nav-dashboard">
+                    <span class="icon">📊</span> Dashboard
+                </a>
+                <a href="#" class="nav-item" id="nav-quote">
+                    <span class="icon">📝</span> New Quote
+                </a>
+                <a href="#" class="nav-item" id="nav-history">
+                    <span class="icon">📂</span> Quote History
+                </a>
+                <a href="#" class="nav-item" id="nav-clients">
+                    <span class="icon">👥</span> My Clients
+                </a>
+                <a href="#" class="nav-item" id="nav-template">
+                    <span class="icon">🎨</span> Template Editor
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <h2>LTL Quote Generator</h2>
+                <div class="markup-selector">
+                    <label for="global-markup">Global Markup:</label>
+                    <select id="global-markup">
+                        <option value="0.18" selected>18% (Standard)</option>
+                        <option value="0.15">15%</option>
+                        <option value="0.13">13%</option>
+                        <option value="0.12">12%</option>
+                        <option value="0.10">10%</option>
+                    </select>
+                </div>
+            </header>
+
+            <!-- Dashboard View -->
+            <section id="view-dashboard" class="view-section active">
+                <div class="glass-panel">
+                    <div class="section-header">
+                        <h3>Analytics Dashboard</h3>
+                    </div>
+                    <div class="kpi-grid">
+                        <div class="kpi-card">
+                            <h4 id="kpi-total-quotes">0</h4>
+                            <p>Total Quotes</p>
+                        </div>
+                        <div class="kpi-card">
+                            <h4 id="kpi-total-clients">0</h4>
+                            <p>Registered Clients</p>
+                        </div>
+                    </div>
+                    <div class="charts-container mt-4">
+                        <div class="chart-wrapper">
+                            <canvas id="quotesChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Quote History View -->
+            <section id="view-history" class="view-section hidden">
+                <div class="glass-panel">
+                    <div class="section-header">
+                        <h3>Quote History</h3>
+                    </div>
+                    <div class="table-container mt-4">
+                        <table class="data-table" id="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Quote ID</th>
+                                    <th>Date</th>
+                                    <th>Service</th>
+                                    <th>Client Company</th>
+                                    <th>Total Cost ($)</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-body">
+                                <!-- Populated via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Quotes View -->
+            <section id="view-quote" class="view-section hidden">
+                <div class="glass-panel">
+                    
+                    <!-- Client Section -->
+                    <div class="section-block">
+                        <div class="section-header flex-between">
+                            <h3>1. Client Information</h3>
+                            <div class="quote-id-badge">
+                                Quote #: <input type="text" id="quote-id-input" value="CFL-1000" class="editable-quote-id">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="client-select">Select Existing Client</label>
+                                <select id="client-select">
+                                    <option value="">-- Select --</option>
+                                    <!-- Populated via JS -->
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="service-type">Service Type</label>
+                                <select id="service-type">
+                                    <option value="LTL" selected>LTL (Less-Than-Truckload)</option>
+                                    <option value="FTL">FTL (Full Truckload)</option>
+                                    <option value="DRAYAGE">DRAYAGE</option>
+                                </select>
+                            </div>
+                            <div class="form-group align-bottom">
+                                <button type="button" class="btn btn-secondary" id="btn-new-client">Create New Client</button>
+                            </div>
+                        </div>
+
+                        <!-- New Client Form (Hidden by default) -->
+                        <div id="new-client-form" class="hidden glass-subpanel">
+                            <h4>New Client</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Company / Contact Name</label>
+                                    <input type="text" id="nc-name" placeholder="Ex. ABC Corp">
+                                </div>
+                                <div class="form-group">
+                                    <label>Email</label>
+                                    <input type="email" id="nc-email" placeholder="email@example.com">
+                                </div>
+                                <div class="form-group">
+                                    <label>Phone</label>
+                                    <input type="text" id="nc-phone" placeholder="Ex. 123-456-7890">
+                                </div>
+                                <div class="form-group">
+                                    <label>Address</label>
+                                    <input type="text" id="nc-address" placeholder="Ex. 123 Main St, TX">
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-primary" id="btn-save-client">Save Client</button>
+                            <button type="button" class="btn btn-text" id="btn-cancel-client">Cancel</button>
+                        </div>
+                    </div>
+
+                    <!-- Pallets Section -->
+                    <div class="section-block">
+                        <div class="section-header flex-between">
+                            <h3>2. Cargo Details (Pallets)</h3>
+                            <button type="button" class="btn btn-outline" id="btn-add-pallet">+ Add Pallet</button>
+                        </div>
+                        
+                        <!-- Magic Parse Feature -->
+                        <div class="magic-parse-box" style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px dashed rgba(252, 76, 2, 0.4);">
+                            <label for="smart-parse-input" style="font-size: 0.9rem; color: #fc4c02; font-weight: bold; margin-bottom: 8px; display: block;">✨ Smart Parser (Magic Paste)</label>
+                            <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 10px;">Paste the client's email text here. The system will auto-extract Cargo Details, Origin, Destination, Commodity, and Accessorials.</p>
+                            <textarea id="smart-parse-input" rows="4" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 10px; border-radius: 4px; margin-bottom: 10px;" placeholder="Paste text here..."></textarea>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btn-smart-parse" style="background: #fc4c02; border: none; color: white;">Parse & Auto-Fill</button>
+                        </div>
+                        
+                        <!-- Shipment Logistics Details -->
+                        <div class="shipment-details" style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1);">
+                            <h4 style="margin-top: 0; margin-bottom: 15px; color: #e2e8f0; font-size: 0.95rem;">Shipment Information</h4>
+                            <div class="form-row">
+                                <div class="form-group" style="flex: 1;">
+                                    <label>Origin (City, State, Zip)</label>
+                                    <input type="text" id="ship-from" placeholder="Ex. Mt. Pocono PA 18344">
+                                </div>
+                                <div class="form-group" style="flex: 1;">
+                                    <label>Destination (City, State, Zip)</label>
+                                    <input type="text" id="ship-to" placeholder="Ex. Laredo TX 78045">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group" style="flex: 1;">
+                                    <label>Commodity</label>
+                                    <input type="text" id="ship-commodity" placeholder="Ex. Auto Parts">
+                                </div>
+                                <div class="form-group" style="flex: 1;">
+                                    <label>Accessorials / Special Req.</label>
+                                    <input type="text" id="ship-accessorials" placeholder="Ex. Liftgate, Appointment">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="table-container">
+                            <table class="data-table" id="pallets-table">
+                                <thead>
+                                    <tr>
+                                        <th>Qty</th>
+                                        <th>Description</th>
+                                        <th>Total Weight (lbs)</th>
+                                        <th>Class</th>
+                                        <th>Dimensions (LxWxH)</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="pallets-body">
+                                    <!-- Dynamic Pallet Rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Carrier Section -->
+                    <div class="section-block">
+                        <div class="section-header">
+                            <h3>3. Carrier Options</h3>
+                        </div>
+
+                        <!-- Carrier Magic Parse Feature -->
+                        <div class="magic-parse-box" style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px dashed rgba(252, 76, 2, 0.4);">
+                            <label for="carrier-parse-input" style="font-size: 0.9rem; color: #fc4c02; font-weight: bold; margin-bottom: 8px; display: block;">✨ Carrier Smart Parser (Magic Paste)</label>
+                            <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 10px;">Paste the raw text from your LTL Rating Portal (e.g., TForce, ABF, Daylight). The system will extract the carriers, sort them by price, and pick the best 3 Standard and 2 Guaranteed options.</p>
+                            <textarea id="carrier-parse-input" rows="3" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 10px; border-radius: 4px; margin-bottom: 10px;" placeholder="Paste carrier text here..."></textarea>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btn-carrier-parse" style="background: #fc4c02; border: none; color: white;">Parse & Auto-Fill Carriers</button>
+                        </div>
+
+                        <div class="table-container">
+                            
+                            <!-- Standard Carriers -->
+                            <div class="carrier-group">
+                                <h4>Standard Options (Not Guaranteed)</h4>
+                                <div class="table-container">
+                                    <table class="data-table carriers-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Carrier</th>
+                                                <th>Transit Days</th>
+                                                <th>Performance %</th>
+                                                <th>Base Cost ($)</th>
+                                                <th>Sale Price ($)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr class="carrier-row">
+                                                <td><input type="text" class="c-name" placeholder="Carrier 1" value="Carrier 1"></td>
+                                                <td><input type="text" class="c-transit" placeholder="Ex. 3 Days"></td>
+                                                <td><input type="text" class="c-perf" placeholder="Ex. 95%"></td>
+                                                <td><input type="number" class="c-cost" placeholder="0.00" step="0.01"></td>
+                                                <td class="price-cell">$<span class="c-price">0.00</span></td>
+                                            </tr>
+                                            <tr class="carrier-row">
+                                                <td><input type="text" class="c-name" placeholder="Carrier 2" value="Carrier 2"></td>
+                                                <td><input type="text" class="c-transit" placeholder="Ex. 4 Days"></td>
+                                                <td><input type="text" class="c-perf" placeholder="Ex. 90%"></td>
+                                                <td><input type="number" class="c-cost" placeholder="0.00" step="0.01"></td>
+                                                <td class="price-cell">$<span class="c-price">0.00</span></td>
+                                            </tr>
+                                            <tr class="carrier-row">
+                                                <td><input type="text" class="c-name" placeholder="Carrier 3" value="Carrier 3"></td>
+                                                <td><input type="text" class="c-transit" placeholder="Ex. 5 Days"></td>
+                                                <td><input type="text" class="c-perf" placeholder="Ex. 88%"></td>
+                                                <td><input type="number" class="c-cost" placeholder="0.00" step="0.01"></td>
+                                                <td class="price-cell">$<span class="c-price">0.00</span></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Guaranteed Carriers -->
+                            <div class="carrier-group mt-4">
+                                <h4>Guaranteed Options</h4>
+                                <div class="table-container">
+                                    <table class="data-table carriers-table guaranteed">
+                                        <thead>
+                                            <tr>
+                                                <th>Carrier</th>
+                                                <th>Transit Days</th>
+                                                <th>Performance %</th>
+                                                <th>Base Cost ($)</th>
+                                                <th>Sale Price ($)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr class="carrier-row">
+                                                <td><input type="text" class="c-name" placeholder="Carrier 4" value="Carrier 4 (Guaranteed)"></td>
+                                                <td><input type="text" class="c-transit" placeholder="Ex. 2 Days"></td>
+                                                <td><input type="text" class="c-perf" placeholder="Ex. 99%"></td>
+                                                <td><input type="number" class="c-cost" placeholder="0.00" step="0.01"></td>
+                                                <td class="price-cell">$<span class="c-price">0.00</span></td>
+                                            </tr>
+                                            <tr class="carrier-row">
+                                                <td><input type="text" class="c-name" placeholder="Carrier 5" value="Carrier 5 (Guaranteed)"></td>
+                                                <td><input type="text" class="c-transit" placeholder="Ex. 3 Days"></td>
+                                                <td><input type="text" class="c-perf" placeholder="Ex. 98%"></td>
+                                                <td><input type="number" class="c-cost" placeholder="0.00" step="0.01"></td>
+                                                <td class="price-cell">$<span class="c-price">0.00</span></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="actions-footer flex-gap">
+                        <button class="btn btn-secondary btn-large" id="btn-save-quote">
+                            <span class="icon">💾</span> Save Quote Data
+                        </button>
+                        <button class="btn btn-primary btn-large" id="btn-generate-pdf">
+                            <span class="icon">📄</span> Generate PDF Quote
+                        </button>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- Clients View -->
+            <section id="view-clients" class="view-section hidden">
+                <div class="glass-panel">
+                    <div class="section-header flex-between">
+                        <h3>Client Directory</h3>
+                        <div>
+                            <input type="file" id="csv-upload" accept=".csv" class="hidden">
+                            <button type="button" class="btn btn-secondary" id="btn-import-csv">
+                                <span class="icon">📤</span> Import CSV
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-container mt-4">
+                        <table class="data-table" id="clients-table">
+                            <thead>
+                                <tr>
+                                    <th>Company / Name</th>
+                                    <th>Email</th>
+                                    <th>Phone</th>
+                                    <th>Address</th>
+                                    <th>Quotes</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="clients-body">
+                                <!-- Populated via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PDF Template Editor View -->
+            <section id="view-template-editor" class="view-section hidden">
+                <header class="view-header">
+                    <h2>PDF Template Editor</h2>
+                    <p>Customize the look and feel of your quotes.</p>
+                </header>
+
+                <div class="template-editor-container" style="display: flex; gap: 20px;">
+                    <!-- Settings Panel -->
+                    <div class="template-settings" style="flex: 1; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px;">
+                        <h3 style="margin-bottom: 15px; color: #fc4c02;">Global Settings</h3>
+                        
+                        <div class="form-group">
+                            <label>Primary Color (Highlights)</label>
+                            <input type="color" id="tmpl-primary-color" value="#fc4c02" style="width: 100%; height: 40px; border: none; cursor: pointer; border-radius: 4px;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Secondary Color (Headers)</label>
+                            <input type="color" id="tmpl-secondary-color" value="#020617" style="width: 100%; height: 40px; border: none; cursor: pointer; border-radius: 4px;">
+                        </div>
+
+                        <div class="form-group" style="margin-top: 20px;">
+                            <label>Select Logo</label>
+                            <select id="tmpl-logo-select" style="width: 100%; height: 40px; background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 5px;">
+                                <option value="">-- No Logo --</option>
+                                <option value="CFL_Azul_Celeste">CFL Azul Celeste</option>
+                                <option value="CFL_Azul_Oscuro">CFL Azul Oscuro</option>
+                                <option value="CFL_Blanco">CFL Blanco</option>
+                                <option value="CFL_Negro">CFL Negro</option>
+                                <option value="CFL_Rojo">CFL Rojo</option>
+                                <option value="Icono_CFL_Azul_Celeste">Icono Azul Celeste</option>
+                                <option value="Icono_CFL_Azul_Oscuro">Icono Azul Oscuro</option>
+                                <option value="Icono_CFL_Blanco">Icono Blanco</option>
+                                <option value="Icono_CFL_Negro">Icono Negro</option>
+                                <option value="Icono_CFL_Rojo">Icono Rojo</option>
+                            </select>
+                            <p style="font-size: 0.75rem; color: #64748b; margin-top: 6px;">Or upload your own image:</p>
+                            <input type="file" id="tmpl-logo-upload" accept="image/*" style="margin-top: 4px; font-size: 0.85rem;">
+                        </div>
+
+                        <!-- Logo Size Controls -->
+                        <div style="margin-top: 20px; background: rgba(0,0,0,0.15); padding: 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+                            <label style="display: block; margin-bottom: 10px; color: #fc4c02; font-weight: 600; font-size: 0.9rem;">📐 Logo Size (mm)</label>
+                            <div style="display: flex; gap: 12px;">
+                                <div style="flex: 1;">
+                                    <label style="font-size: 0.8rem; color: #94a3b8;">Width</label>
+                                    <input type="number" id="tmpl-logo-w" value="40" min="10" max="100" step="1" style="width: 100%;">
+                                </div>
+                                <div style="flex: 1;">
+                                    <label style="font-size: 0.8rem; color: #94a3b8;">Height</label>
+                                    <input type="number" id="tmpl-logo-h" value="15" min="5" max="60" step="1" style="width: 100%;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- PDF Layout Controls -->
+                        <div style="margin-top: 20px; background: rgba(0,0,0,0.15); padding: 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+                            <label style="display: block; margin-bottom: 10px; color: #fc4c02; font-weight: 600; font-size: 0.9rem;">📄 PDF Layout</label>
+                            <div style="display: flex; gap: 12px;">
+                                <div style="flex: 1;">
+                                    <label style="font-size: 0.8rem; color: #94a3b8;">Title Font Size</label>
+                                    <input type="number" id="tmpl-title-size" value="22" min="12" max="36" step="1" style="width: 100%;">
+                                </div>
+                                <div style="flex: 1;">
+                                    <label style="font-size: 0.8rem; color: #94a3b8;">Body Font Size</label>
+                                    <input type="number" id="tmpl-body-size" value="10" min="7" max="16" step="0.5" style="width: 100%;">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 12px; margin-top: 10px;">
+                                <div style="flex: 1;">
+                                    <label style="font-size: 0.8rem; color: #94a3b8;">Left Margin (mm)</label>
+                                    <input type="number" id="tmpl-margin-left" value="14" min="5" max="40" step="1" style="width: 100%;">
+                                </div>
+                                <div style="flex: 1;">
+                                    <label style="font-size: 0.8rem; color: #94a3b8;">Right Margin (mm)</label>
+                                    <input type="number" id="tmpl-margin-right" value="196" min="160" max="205" step="1" style="width: 100%;">
+                                </div>
+                            </div>
+                            <div style="margin-top: 10px;">
+                                <label style="font-size: 0.8rem; color: #94a3b8;">Logo Y Position (mm from top)</label>
+                                <input type="number" id="tmpl-logo-y" value="10" min="3" max="40" step="1" style="width: 100%;">
+                            </div>
+                        </div>
+                        
+                        <div class="form-group" style="margin-top: 20px;">
+                            <label>Disclaimer / Legal Text</label>
+                            <textarea id="tmpl-disclaimer" rows="8" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 10px;"></textarea>
+                        </div>
+                        
+                        <button class="btn btn-primary" id="btn-save-template" style="width: 100%; margin-top: 15px;">Save Template Settings</button>
+                    </div>
+
+                    <!-- Live Preview -->
+                    <div class="template-preview" style="flex: 2; display: flex; justify-content: center; background: #333; padding: 20px; border-radius: 12px; overflow-x: auto;">
+                        <div id="pdf-render-zone" style="background: white; width: 794px; min-height: 1123px; padding: 40px; box-sizing: border-box; color: black; font-family: 'Helvetica', Arial, sans-serif; position: relative;">
+                            
+                            <!-- Header -->
+                            <div id="pdf-header-row" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 2px solid var(--pdf-primary, #fc4c02); padding-bottom: 15px;">
+                                <img id="pdf-logo-img" src="" alt="CFL Logistics" style="max-height: 80px; max-width: 250px; object-fit: contain;">
+                                <div style="text-align: right;">
+                                    <h1 id="pdf-title" style="margin: 0; color: var(--pdf-secondary, #020617); font-size: 28px;">OFFICIAL QUOTE</h1>
+                                    <p id="pdf-date-line" style="margin: 5px 0 0 0; color: #666; font-size: 14px;">Date: <span id="pdf-date">10/24/2026</span></p>
+                                    <p id="pdf-quoteid-line" style="margin: 5px 0 0 0; color: #666; font-size: 14px;">Quote #: <span id="pdf-quote-id">CFL-1000</span></p>
+                                    <p id="pdf-service-line" style="margin: 5px 0 0 0; color: #666; font-size: 14px; font-weight: bold;">Service: <span id="pdf-service-type">LTL</span></p>
+                                </div>
+                            </div>
+                            
+                            <!-- Prepared For -->
+                            <div style="margin-bottom: 30px;">
+                                <h3 style="color: var(--pdf-primary, #fc4c02); margin: 0 0 10px 0; font-size: 16px;">PREPARED FOR:</h3>
+                                <p style="margin: 0; font-weight: bold; font-size: 14px;" id="pdf-client-company">Company Name</p>
+                                <p style="margin: 3px 0 0 0; color: #444; font-size: 12px;" id="pdf-client-name">Contact Name</p>
+                                <p style="margin: 3px 0 0 0; color: #444; font-size: 12px;" id="pdf-client-email">Email Address</p>
+                            </div>
+                            
+                            <!-- Shipment Logistics Details -->
+                            <div style="margin-bottom: 30px; display: flex; gap: 40px;">
+                                <div style="flex: 1;">
+                                    <h3 style="color: var(--pdf-secondary, #020617); margin: 0 0 10px 0; font-size: 14px; border-bottom: 1px solid #ccc; padding-bottom: 3px;">SHIPMENT ORIGIN & DESTINATION</h3>
+                                    <p style="margin: 0 0 5px 0; font-size: 12px;"><strong>From:</strong> <span id="pdf-ship-from">Not specified</span></p>
+                                    <p style="margin: 0; font-size: 12px;"><strong>To:</strong> <span id="pdf-ship-to">Not specified</span></p>
+                                </div>
+                                <div style="flex: 1;">
+                                    <h3 style="color: var(--pdf-secondary, #020617); margin: 0 0 10px 0; font-size: 14px; border-bottom: 1px solid #ccc; padding-bottom: 3px;">COMMODITY & SPECIAL REQ.</h3>
+                                    <p style="margin: 0 0 5px 0; font-size: 12px;"><strong>Commodity:</strong> <span id="pdf-ship-commodity">Not specified</span></p>
+                                    <p style="margin: 0; font-size: 12px;"><strong>Accessorials:</strong> <span id="pdf-ship-accessorials">None</span></p>
+                                </div>
+                            </div>
+                            
+                            <!-- Cargo Details -->
+                            <div style="margin-bottom: 30px;">
+                                <h3 style="color: var(--pdf-secondary, #020617); margin: 0 0 10px 0; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">CARGO DETAILS</h3>
+                                <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px;">
+                                    <thead>
+                                        <tr style="background-color: #f5f5f5;">
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">QTY</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">DESCRIPTION</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: center;">WEIGHT (LBS)</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: center;">DIMS (L X W X H)</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: center;">CLASS</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="pdf-cargo-table">
+                                        <tr>
+                                            <td style="padding: 8px; border: 1px solid #ddd;">1</td>
+                                            <td style="padding: 8px; border: 1px solid #ddd;">Sample Pallet</td>
+                                            <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">1000</td>
+                                            <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">48x40x48</td>
+                                            <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">50</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <!-- Carrier Options Standard -->
+                            <div style="margin-bottom: 30px;">
+                                <h3 style="color: var(--pdf-secondary, #020617); margin: 0 0 10px 0; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">STANDARD OPTIONS (NOT GUARANTEED)</h3>
+                                <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px;">
+                                    <thead>
+                                        <tr style="background-color: var(--pdf-secondary, #020617); color: white;">
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">CARRIER</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: center;">TRANSIT DAYS</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: right;">PRICE</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="pdf-standard-table">
+                                        <tr>
+                                            <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">TFORCE FREIGHT</td>
+                                            <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">4 DAYS</td>
+                                            <td style="padding: 8px; border: 1px solid #ddd; text-align: right; color: var(--pdf-primary, #fc4c02); font-weight: bold;">$894.44</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <!-- Carrier Options Guaranteed -->
+                            <div style="margin-bottom: 30px;" id="pdf-guaranteed-container">
+                                <h3 style="color: var(--pdf-secondary, #020617); margin: 0 0 10px 0; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">GUARANTEED OPTIONS</h3>
+                                <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px;">
+                                    <thead>
+                                        <tr style="background-color: var(--pdf-primary, #fc4c02); color: white;">
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">CARRIER</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: center;">TRANSIT DAYS</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: right;">PRICE</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="pdf-guaranteed-table">
+                                        <tr>
+                                            <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">TFORCE FREIGHT (GUARANTEED)</td>
+                                            <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">4 DAYS</td>
+                                            <td style="padding: 8px; border: 1px solid #ddd; text-align: right; font-weight: bold;">$1,013.62</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <!-- Disclaimer -->
+                            <div style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #eee;">
+                                <p id="pdf-disclaimer-text" style="font-size: 9px; color: #888; text-align: justify; line-height: 1.4; white-space: pre-wrap;">
+                                    Here goes the legal disclaimer...
+                                </p>
+                            </div>
+                            
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Script -->
+    <script src="logo.js"></script>
+    <script src="app.js?v=2"></script>
+</body>
+</html>
