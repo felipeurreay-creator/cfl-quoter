@@ -25,10 +25,7 @@ function saveCounterToCloud() {
 
 function saveTemplateToCloud(settings) {
     if (typeof db === 'undefined') return;
-    // Don't save logoBase64 to cloud (too large), only settings
-    const cloudSettings = { ...settings };
-    delete cloudSettings.logoBase64;
-    db.collection('appData').doc('templateSettings').set(cloudSettings);
+    db.collection('appData').doc('templateSettings').set(settings);
 }
 
 function setupRealtimeListeners() {
@@ -63,15 +60,27 @@ function setupRealtimeListeners() {
             updateQuoteIdDisplay();
         }
     });
+
+    // Listen for template settings changes
+    db.collection('appData').doc('templateSettings').onSnapshot(doc => {
+        if (doc.exists) {
+            templateSettings = doc.data();
+            localStorage.setItem('cfl_template_settings', JSON.stringify(templateSettings));
+            if (typeof applySettingsToPreview === 'function') {
+                applySettingsToPreview();
+            }
+        }
+    });
 }
 
 async function loadInitialDataFromCloud() {
     if (typeof db === 'undefined') { console.log("⚠️ Firebase not available, using localStorage"); return; }
     try {
-        const [clientsDoc, quotesDoc, counterDoc] = await Promise.all([
+        const [clientsDoc, quotesDoc, counterDoc, templateDoc] = await Promise.all([
             db.collection('appData').doc('clients').get(),
             db.collection('appData').doc('quotes').get(),
-            db.collection('appData').doc('counter').get()
+            db.collection('appData').doc('counter').get(),
+            db.collection('appData').doc('templateSettings').get()
         ]);
         if (clientsDoc.exists && clientsDoc.data().list) {
             clients = clientsDoc.data().list;
@@ -84,6 +93,10 @@ async function loadInitialDataFromCloud() {
         if (counterDoc.exists && counterDoc.data().value) {
             quoteCounter = counterDoc.data().value;
             localStorage.setItem('cfl_quote_count', quoteCounter);
+        }
+        if (templateDoc.exists) {
+            templateSettings = templateDoc.data();
+            localStorage.setItem('cfl_template_settings', JSON.stringify(templateSettings));
         }
         console.log("✅ Data loaded from Firestore");
     } catch(e) {
@@ -588,37 +601,91 @@ function addPalletRow() {
 // Smart Parse Logic
 function handleSmartParse() {
     const rawText = smartParseInput.value;
+    if (!rawText.trim()) return;
     const text = rawText.toLowerCase();
-    if (!text) return;
 
-    // Logistics Parsing (From, To, Commodity, Accessorials)
-    let pickupMatch = rawText.match(/Pick up:.*?(?:,\s*([^,]+?)\s+([A-Z]{2})\s+(\d{5}))/i);
-    if(pickupMatch && shipFrom) {
-        shipFrom.value = pickupMatch[1].trim() + ", " + pickupMatch[2] + " " + pickupMatch[3];
+    let foundItems = [];
+
+    // ── ORIGIN / FROM PARSING ──────────────────────────────
+    // Try multiple patterns for pickup/origin
+    let originFound = '';
+
+    // Pattern 1: "Pick up:" or "Pick Up Address:" followed by company + address block
+    let pickupBlockMatch = rawText.match(/(?:Pick\s*Up\s*(?:Address)?)\s*:?\s*\n([\s\S]*?)(?=\n\s*(?:Hours|Horario|Detalle|Delivery|Destino|Total|Image|Special|\n\s*\n))/i);
+    if (pickupBlockMatch) {
+        // Extract city, state, zip from the address block
+        let addrBlock = pickupBlockMatch[1].trim();
+        let csz = addrBlock.match(/([A-Za-z\s]+),?\s+([A-Z]{2})\s+(\d{5})/);
+        if (csz) {
+            originFound = csz[1].trim() + ', ' + csz[2] + ' ' + csz[3];
+        } else {
+            // Take last meaningful line as location
+            let lines = addrBlock.split('\n').map(l => l.trim()).filter(l => l && !/^(Hours|Contact|Phone)/i.test(l));
+            if (lines.length > 0) originFound = lines[lines.length - 1];
+        }
     }
 
-    let deliveryMatch = rawText.match(/Delivery:.*?(?:,\s*([^,]+?)\s+([A-Z]{2})\s+(\d{5}))/i);
-    if(deliveryMatch && shipTo) {
-        shipTo.value = deliveryMatch[1].trim() + ", " + deliveryMatch[2] + " " + deliveryMatch[3];
+    // Pattern 2: "Pick up: CompanyName, Address, City STATE ZIP"
+    if (!originFound) {
+        let pickupInline = rawText.match(/Pick\s*up\s*:\s*.*?,\s*.*?,\s*([^,]+?)\s+([A-Z]{2})\s+(\d{5})/i);
+        if (pickupInline) originFound = pickupInline[1].trim() + ', ' + pickupInline[2] + ' ' + pickupInline[3];
     }
 
-    let reqMatch = rawText.match(/Special requirements if any:\s*(.*?)(?=\n[A-Z]+:|$)/i);
-    if(reqMatch && shipAccessorials) {
-        shipAccessorials.value = reqMatch[1].trim();
+    // Pattern 3: "Origin:" or "From:"
+    if (!originFound) {
+        let originMatch = rawText.match(/(?:Origin|From)\s*:\s*(.*?)(?:\n|$)/i);
+        if (originMatch) originFound = originMatch[1].trim();
     }
 
-    let commMatch = rawText.match(/Commodities\(s\):\s*([\s\S]*?)(?=\nNO HAZMAT|$)/i);
-    if(commMatch && shipCommodity) {
+    if (originFound && shipFrom) shipFrom.value = originFound;
+
+    // ── DESTINATION / TO PARSING ───────────────────────────
+    let destFound = '';
+
+    // Pattern 1: "Destino:" followed by address
+    let destinoMatch = rawText.match(/Destino\s*:\s*([\s\S]*?)(?=\n\s*(?:Aguardo|Puertas|Hours|Horario|Special|\n\s*\n|$))/i);
+    if (destinoMatch) {
+        let destBlock = destinoMatch[1].trim();
+        let csz = destBlock.match(/([A-Za-z\s]+),?\s+([A-Z]{2})\s+(\d{5})/);
+        if (csz) {
+            destFound = csz[1].trim() + ', ' + csz[2] + ' ' + csz[3];
+        } else {
+            destFound = destBlock.split('\n')[0].trim();
+        }
+    }
+
+    // Pattern 2: "Delivery:" inline
+    if (!destFound) {
+        let deliveryInline = rawText.match(/Delivery\s*:\s*.*?,\s*.*?,\s*([^,]+?)\s+([A-Z]{2})\s+(\d{5})/i);
+        if (deliveryInline) destFound = deliveryInline[1].trim() + ', ' + deliveryInline[2] + ' ' + deliveryInline[3];
+    }
+
+    // Pattern 3: "Destination:" or "To:"
+    if (!destFound) {
+        let destMatch = rawText.match(/(?:Destination|To|Deliver\s*to)\s*:\s*(.*?)(?:\n|$)/i);
+        if (destMatch) destFound = destMatch[1].trim();
+    }
+
+    if (destFound && shipTo) shipTo.value = destFound;
+
+    // ── COMMODITY PARSING ──────────────────────────────────
+    let commMatch = rawText.match(/Commodit(?:y|ies)\s*\(?s?\)?\s*:\s*([\s\S]*?)(?=\n(?:NO HAZMAT|HAZMAT|Special|Reference|\n))/i);
+    if (commMatch && shipCommodity) {
         shipCommodity.value = commMatch[1].trim().replace(/§\s*/, '');
     }
 
-    const lines = text.split(/[\n\r·•]+/);
+    // ── ACCESSORIALS / SPECIAL REQUIREMENTS ────────────────
+    let reqMatch = rawText.match(/Special\s*requirements?\s*(?:if any)?\s*:\s*(.*?)(?=\n[A-Z]+:|$)/i);
+    if (reqMatch && shipAccessorials) {
+        shipAccessorials.value = reqMatch[1].trim();
+    }
+
+    // ── PALLET / CARGO PARSING (OPTIONAL) ──────────────────
+    const lines = rawText.split(/[\n\r·•]+/);
     let parsedItems = [];
 
-    // Try line-by-line parsing first
     lines.forEach(line => {
         if (!line.trim()) return;
-
         const qtyMatch = line.match(/(\d+)\s*(?:pallet|plt|skid|piece|pc|box)s?/i);
         const dimsMatch = line.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
         const weightMatch = line.match(/(?:@\s*)?(\d+(?:[.,]\d+)?)\s*(?:lbs|lb|pound|pds|#)/i);
@@ -629,85 +696,83 @@ function handleSmartParse() {
             let w = parseFloat(dimsMatch[2]);
             let h = parseFloat(dimsMatch[3]);
             let weight = parseFloat(weightMatch[1].replace(',', ''));
-            
             const isEach = /(?:ea|each|c\/u|cada|c\/uno)\b/i.test(line.substring(weightMatch.index));
-            if (isEach && qty > 1 && weight > 0) {
-                weight = weight * qty;
-            }
-
+            if (isEach && qty > 1 && weight > 0) weight = weight * qty;
             parsedItems.push({ qty, l, w, h, weight });
         }
     });
 
-    // Fallback: Global regex if line-by-line missed everything
+    // Fallback global regex for pallets
     if (parsedItems.length === 0) {
         const globalPattern = /(?:(?:(\d+)\s*(?:pallet|plt|skid|piece|pc|box)s?[^\d]*?)?)(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)[^\d]*?(?:@\s*)?(\d+(?:[.,]\d+)?)\s*(?:lbs|lb|pound|pds|#)/gi;
         let match;
-        while ((match = globalPattern.exec(text)) !== null) {
+        while ((match = globalPattern.exec(rawText)) !== null) {
             let qty = match[1] ? parseInt(match[1]) : 1;
-            let l = parseFloat(match[2]);
-            let w = parseFloat(match[3]);
-            let h = parseFloat(match[4]);
-            let weight = parseFloat(match[5].replace(',', ''));
-            
-            const isEach = /(?:ea|each|c\/u|cada|c\/uno)\b/i.test(match[0]);
-            if (isEach && qty > 1 && weight > 0) {
-                weight = weight * qty;
-            }
-            parsedItems.push({ qty, l, w, h, weight });
+            parsedItems.push({ qty, l: parseFloat(match[2]), w: parseFloat(match[3]), h: parseFloat(match[4]), weight: parseFloat(match[5].replace(',', '')) });
         }
     }
 
-    if (parsedItems.length === 0) {
-        alert("Could not detect any valid dimensions and weights. Ensure the format includes 'LxWxH' and 'lbs'.");
-        return;
+    // If pallets found, populate the table
+    if (parsedItems.length > 0) {
+        palletsBody.innerHTML = '';
+        let totalWeightAll = 0, totalVolumeAllCubicFeet = 0, totalQtyAll = 0;
+
+        parsedItems.forEach((item, index) => {
+            const volumeCubicInches = (item.l * item.w * item.h) * item.qty;
+            const volumeCubicFeet = volumeCubicInches / 1728;
+            const pcf = item.weight / volumeCubicFeet;
+
+            let freightClass = "50";
+            if (pcf < 1) freightClass = "400";
+            else if (pcf < 2) freightClass = "300";
+            else if (pcf < 4) freightClass = "250";
+            else if (pcf < 6) freightClass = "150";
+            else if (pcf < 8) freightClass = "125";
+            else if (pcf < 10) freightClass = "100";
+            else if (pcf < 12) freightClass = "92.5";
+            else if (pcf < 15) freightClass = "85";
+            else if (pcf < 22.5) freightClass = "70";
+            else if (pcf < 30) freightClass = "65";
+            else if (pcf < 35) freightClass = "60";
+
+            totalWeightAll += item.weight;
+            totalVolumeAllCubicFeet += volumeCubicFeet;
+            totalQtyAll += item.qty;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="number" class="p-qty" value="${item.qty}" min="1" style="width: 60px;"></td>
+                <td><input type="text" class="p-desc" value="Parsed Cargo ${index+1}" placeholder="Ex. Auto Parts"></td>
+                <td><input type="number" class="p-weight" value="${item.weight}" placeholder="0" style="width: 80px;"></td>
+                <td><input type="text" class="p-class" value="${freightClass}" placeholder="Ex. 50" style="width: 80px;"></td>
+                <td><input type="text" class="p-dims" value="${item.l}x${item.w}x${item.h}" placeholder="48x40x48"></td>
+                <td><button type="button" class="btn btn-danger btn-remove-pallet">X</button></td>
+            `;
+            tr.querySelector('.btn-remove-pallet').addEventListener('click', () => tr.remove());
+            palletsBody.appendChild(tr);
+        });
     }
 
-    palletsBody.innerHTML = ''; 
+    // ── SUCCESS SUMMARY ────────────────────────────────────
+    let summary = '✅ Smart Parser Results:\n';
+    if (originFound) summary += `📍 Origin: ${originFound}\n`;
+    if (destFound) summary += `📍 Destination: ${destFound}\n`;
+    if (shipCommodity && shipCommodity.value) summary += `📦 Commodity: ${shipCommodity.value}\n`;
+    if (shipAccessorials && shipAccessorials.value) summary += `⚙️ Accessorials: ${shipAccessorials.value}\n`;
+    if (parsedItems.length > 0) {
+        const totalQ = parsedItems.reduce((s, i) => s + i.qty, 0);
+        const totalW = parsedItems.reduce((s, i) => s + i.weight, 0);
+        summary += `🧮 Pallets: ${totalQ} units, ${totalW} lbs total\n`;
+    } else {
+        summary += `\nNo pallet data detected — add pallets manually below.`;
+    }
 
-    let totalWeightAll = 0;
-    let totalVolumeAllCubicFeet = 0;
-    let totalQtyAll = 0;
-
-    parsedItems.forEach((item, index) => {
-        const volumeCubicInches = (item.l * item.w * item.h) * item.qty;
-        const volumeCubicFeet = volumeCubicInches / 1728;
-        const pcf = item.weight / volumeCubicFeet;
-        
-        let freightClass = "50";
-        if (pcf < 1) freightClass = "400";
-        else if (pcf < 2) freightClass = "300";
-        else if (pcf < 4) freightClass = "250";
-        else if (pcf < 6) freightClass = "150";
-        else if (pcf < 8) freightClass = "125";
-        else if (pcf < 10) freightClass = "100";
-        else if (pcf < 12) freightClass = "92.5";
-        else if (pcf < 15) freightClass = "85";
-        else if (pcf < 22.5) freightClass = "70";
-        else if (pcf < 30) freightClass = "65";
-        else if (pcf < 35) freightClass = "60";
-
-        totalWeightAll += item.weight;
-        totalVolumeAllCubicFeet += volumeCubicFeet;
-        totalQtyAll += item.qty;
-
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td><input type="number" class="p-qty" value="${item.qty}" min="1" style="width: 60px;"></td>
-            <td><input type="text" class="p-desc" value="Parsed Cargo ${index+1}" placeholder="Ex. Auto Parts"></td>
-            <td><input type="number" class="p-weight" value="${item.weight}" placeholder="0" style="width: 80px;"></td>
-            <td><input type="text" class="p-class" value="${freightClass}" placeholder="Ex. 50" style="width: 80px;"></td>
-            <td><input type="text" class="p-dims" value="${item.l}x${item.w}x${item.h}" placeholder="48x40x48"></td>
-            <td><button type="button" class="btn btn-danger btn-remove-pallet">X</button></td>
-        `;
-        tr.querySelector('.btn-remove-pallet').addEventListener('click', () => tr.remove());
-        palletsBody.appendChild(tr);
-    });
-
-    const overallDensity = totalWeightAll / totalVolumeAllCubicFeet;
-
-    smartParseInput.value = '';
-    alert(`Success! Parsed ${totalQtyAll} pallets across ${parsedItems.length} lines.\n\nTotal Weight: ${totalWeightAll} lbs.\nOverall Load Density: ${overallDensity.toFixed(2)} PCF.`);
+    if (!originFound && !destFound && parsedItems.length === 0) {
+        alert('Could not detect any shipment data. Try pasting a more complete email.');
+    } else {
+        smartParseInput.value = '';
+        alert(summary);
+    }
 }
 
 // Carrier Parse Logic
