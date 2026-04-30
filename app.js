@@ -155,14 +155,26 @@ const csvUpload = document.getElementById('csv-upload');
 let quotesChart = null;
 
 // Initialize
-async function init() {
-    await loadInitialDataFromCloud();
+function init() {
+    // 1. Instantly load UI with local cache (Zero delay)
     loadClients();
     updateQuoteIdDisplay();
     updateDashboard();
     setupEventListeners();
     addPalletRow();
-    setupRealtimeListeners();
+
+    // 2. Connect to cloud in the background (Non-blocking)
+    loadInitialDataFromCloud().then(() => {
+        // Re-render UI once cloud data arrives
+        loadClients();
+        updateQuoteIdDisplay();
+        updateDashboard();
+        if (typeof renderHistoryTable === 'function') renderHistoryTable();
+        if (typeof applySettingsToPreview === 'function') applySettingsToPreview();
+        
+        // 3. Start listening for real-time changes
+        setupRealtimeListeners();
+    });
 }
 
 // Navigation
