@@ -87,9 +87,37 @@
             <!-- Quote History View -->
             <section id="view-history" class="view-section hidden">
                 <div class="glass-panel">
-                    <div class="section-header">
+                    <div class="section-header flex-between">
                         <h3>Quote History</h3>
+                        <span id="search-results-count" style="color: var(--text-muted); font-size: 0.85rem;"></span>
                     </div>
+
+                    <!-- Search & Filters -->
+                    <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end;">
+                        <div style="flex: 2; min-width: 200px;">
+                            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">🔍 Search</label>
+                            <input type="text" id="search-quotes" placeholder="Quote ID, client, origin, destination..." style="width: 100%;">
+                        </div>
+                        <div style="flex: 1; min-width: 120px;">
+                            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">📋 Service</label>
+                            <select id="filter-service" style="width: 100%;">
+                                <option value="">All</option>
+                                <option value="LTL">LTL</option>
+                                <option value="FTL">FTL</option>
+                                <option value="DRAYAGE">DRAYAGE</option>
+                            </select>
+                        </div>
+                        <div style="flex: 1; min-width: 130px;">
+                            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">📅 From</label>
+                            <input type="date" id="filter-date-from" style="width: 100%;">
+                        </div>
+                        <div style="flex: 1; min-width: 130px;">
+                            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">📅 To</label>
+                            <input type="date" id="filter-date-to" style="width: 100%;">
+                        </div>
+                        <button class="btn btn-text" id="btn-clear-filters" style="padding: 0.6rem 1rem; white-space: nowrap;">✕ Clear</button>
+                    </div>
+
                     <div class="table-container mt-4">
                         <table class="data-table" id="history-table">
                             <thead>
@@ -579,8 +607,12 @@
         </main>
     </div>
 
-    <!-- Script -->
+    <!-- Firebase -->
+    <script src="libs/firebase-app-compat.js"></script>
+    <script src="libs/firebase-firestore-compat.js"></script>
+    <script src="firebase-config.js"></script>
+    <!-- App Scripts -->
     <script src="logo.js"></script>
-    <script src="app.js?v=2"></script>
+    <script src="app.js?v=3"></script>
 </body>
 </html>

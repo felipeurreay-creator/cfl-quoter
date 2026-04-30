@@ -1,8 +1,96 @@
-// State Management
+// State Management (loaded from Firestore, cached in localStorage as fallback)
 let clients = JSON.parse(localStorage.getItem('cfl_clients')) || [];
 let quotes = JSON.parse(localStorage.getItem('cfl_quotes')) || [];
 let quoteCounter = parseInt(localStorage.getItem('cfl_quote_count')) || 1000;
 let currentMarkup = 0.18;
+
+// ── Firestore Helpers ──────────────────────────────────────
+function saveClientsToCloud() {
+    if (typeof db === 'undefined') return;
+    db.collection('appData').doc('clients').set({ list: clients });
+    localStorage.setItem('cfl_clients', JSON.stringify(clients));
+}
+
+function saveQuotesToCloud() {
+    if (typeof db === 'undefined') return;
+    db.collection('appData').doc('quotes').set({ list: quotes });
+    localStorage.setItem('cfl_quotes', JSON.stringify(quotes));
+}
+
+function saveCounterToCloud() {
+    if (typeof db === 'undefined') return;
+    db.collection('appData').doc('counter').set({ value: quoteCounter });
+    localStorage.setItem('cfl_quote_count', quoteCounter);
+}
+
+function saveTemplateToCloud(settings) {
+    if (typeof db === 'undefined') return;
+    // Don't save logoBase64 to cloud (too large), only settings
+    const cloudSettings = { ...settings };
+    delete cloudSettings.logoBase64;
+    db.collection('appData').doc('templateSettings').set(cloudSettings);
+}
+
+function setupRealtimeListeners() {
+    if (typeof db === 'undefined') return;
+
+    // Listen for client changes from other users
+    db.collection('appData').doc('clients').onSnapshot(doc => {
+        if (doc.exists && doc.data().list) {
+            clients = doc.data().list;
+            localStorage.setItem('cfl_clients', JSON.stringify(clients));
+            loadClients();
+            renderClientsTable();
+            updateDashboard();
+        }
+    });
+
+    // Listen for quote changes from other users
+    db.collection('appData').doc('quotes').onSnapshot(doc => {
+        if (doc.exists && doc.data().list) {
+            quotes = doc.data().list;
+            localStorage.setItem('cfl_quotes', JSON.stringify(quotes));
+            renderHistoryTable();
+            updateDashboard();
+        }
+    });
+
+    // Listen for counter changes
+    db.collection('appData').doc('counter').onSnapshot(doc => {
+        if (doc.exists && doc.data().value) {
+            quoteCounter = doc.data().value;
+            localStorage.setItem('cfl_quote_count', quoteCounter);
+            updateQuoteIdDisplay();
+        }
+    });
+}
+
+async function loadInitialDataFromCloud() {
+    if (typeof db === 'undefined') { console.log("⚠️ Firebase not available, using localStorage"); return; }
+    try {
+        const [clientsDoc, quotesDoc, counterDoc] = await Promise.all([
+            db.collection('appData').doc('clients').get(),
+            db.collection('appData').doc('quotes').get(),
+            db.collection('appData').doc('counter').get()
+        ]);
+        if (clientsDoc.exists && clientsDoc.data().list) {
+            clients = clientsDoc.data().list;
+            localStorage.setItem('cfl_clients', JSON.stringify(clients));
+        }
+        if (quotesDoc.exists && quotesDoc.data().list) {
+            quotes = quotesDoc.data().list;
+            localStorage.setItem('cfl_quotes', JSON.stringify(quotes));
+        }
+        if (counterDoc.exists && counterDoc.data().value) {
+            quoteCounter = counterDoc.data().value;
+            localStorage.setItem('cfl_quote_count', quoteCounter);
+        }
+        console.log("✅ Data loaded from Firestore");
+    } catch(e) {
+        console.warn("⚠️ Could not load from Firestore, using localStorage cache:", e);
+    }
+}
+// ────────────────────────────────────────────────────────────
 
 // DOM Elements
 const navDashboard = document.getElementById('nav-dashboard');
@@ -54,12 +142,14 @@ const csvUpload = document.getElementById('csv-upload');
 let quotesChart = null;
 
 // Initialize
-function init() {
+async function init() {
+    await loadInitialDataFromCloud();
     loadClients();
     updateQuoteIdDisplay();
     updateDashboard();
     setupEventListeners();
-    addPalletRow(); // Add one default pallet row
+    addPalletRow();
+    setupRealtimeListeners();
 }
 
 // Navigation
@@ -170,10 +260,52 @@ function updateQuoteIdDisplay() {
 // History Management
 function renderHistoryTable() {
     historyBody.innerHTML = '';
-    // Sort quotes by date descending
-    const sortedQuotes = [...quotes].sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    sortedQuotes.forEach((quote) => {
+    // Get filter values
+    const searchInput = document.getElementById('search-quotes');
+    const filterService = document.getElementById('filter-service');
+    const filterDateFrom = document.getElementById('filter-date-from');
+    const filterDateTo = document.getElementById('filter-date-to');
+    const resultsCount = document.getElementById('search-results-count');
+
+    const searchTerm = (searchInput ? searchInput.value : '').toLowerCase().trim();
+    const serviceFilter = filterService ? filterService.value : '';
+    const dateFrom = filterDateFrom && filterDateFrom.value ? new Date(filterDateFrom.value) : null;
+    const dateTo = filterDateTo && filterDateTo.value ? new Date(filterDateTo.value + 'T23:59:59') : null;
+
+    // Sort quotes by date descending
+    let filteredQuotes = [...quotes].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // Apply filters
+    filteredQuotes = filteredQuotes.filter(quote => {
+        // Text search (ID, client, origin, destination, commodity)
+        if (searchTerm) {
+            const searchable = [
+                quote.id, quote.clientName, quote.clientEmail,
+                quote.shipFrom, quote.shipTo, quote.shipCommodity,
+                quote.serviceType
+            ].filter(Boolean).join(' ').toLowerCase();
+            if (!searchable.includes(searchTerm)) return false;
+        }
+        // Service type filter
+        if (serviceFilter && (quote.serviceType || 'LTL') !== serviceFilter) return false;
+        // Date range
+        const quoteDate = new Date(quote.date);
+        if (dateFrom && quoteDate < dateFrom) return false;
+        if (dateTo && quoteDate > dateTo) return false;
+        return true;
+    });
+
+    // Show results count
+    if (resultsCount) {
+        if (searchTerm || serviceFilter || dateFrom || dateTo) {
+            resultsCount.textContent = `${filteredQuotes.length} of ${quotes.length} quotes`;
+        } else {
+            resultsCount.textContent = `${quotes.length} quotes`;
+        }
+    }
+
+    filteredQuotes.forEach((quote) => {
         const tr = document.createElement('tr');
         
         let totalCost = 0;
@@ -197,12 +329,37 @@ function renderHistoryTable() {
         `;
         historyBody.appendChild(tr);
     });
+
+    if (filteredQuotes.length === 0) {
+        historyBody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-muted);">No quotes found matching your filters.</td></tr>`;
+    }
 }
+
+// Search & filter event listeners
+document.addEventListener('DOMContentLoaded', () => {
+    const searchEl = document.getElementById('search-quotes');
+    const serviceEl = document.getElementById('filter-service');
+    const dateFromEl = document.getElementById('filter-date-from');
+    const dateToEl = document.getElementById('filter-date-to');
+    const clearBtn = document.getElementById('btn-clear-filters');
+
+    if (searchEl) searchEl.addEventListener('input', renderHistoryTable);
+    if (serviceEl) serviceEl.addEventListener('change', renderHistoryTable);
+    if (dateFromEl) dateFromEl.addEventListener('change', renderHistoryTable);
+    if (dateToEl) dateToEl.addEventListener('change', renderHistoryTable);
+    if (clearBtn) clearBtn.addEventListener('click', () => {
+        if (searchEl) searchEl.value = '';
+        if (serviceEl) serviceEl.value = '';
+        if (dateFromEl) dateFromEl.value = '';
+        if (dateToEl) dateToEl.value = '';
+        renderHistoryTable();
+    });
+});
 
 window.deleteQuote = function(quoteId) {
     if (!confirm(`Are you sure you want to delete quote ${quoteId}? This cannot be undone.`)) return;
     quotes = quotes.filter(q => q.id !== quoteId);
-    localStorage.setItem('cfl_quotes', JSON.stringify(quotes));
+    saveQuotesToCloud();
     renderHistoryTable();
     updateDashboard();
 };
@@ -328,7 +485,7 @@ function saveClient() {
 
     const newClient = { name, company: name, email, phone, address };
     clients.push(newClient);
-    localStorage.setItem('cfl_clients', JSON.stringify(clients));
+    saveClientsToCloud();
     
     document.getElementById('nc-name').value = '';
     document.getElementById('nc-email').value = '';
@@ -343,7 +500,7 @@ function saveClient() {
 window.deleteClient = function(index) {
     if(confirm("Are you sure you want to delete this client?")) {
         clients.splice(index, 1);
-        localStorage.setItem('cfl_clients', JSON.stringify(clients));
+        saveClientsToCloud();
         renderClientsTable();
         loadClients();
         updateDashboard();
@@ -392,7 +549,7 @@ function handleCSVUpload(event) {
             });
 
             if (importedCount > 0) {
-                localStorage.setItem('cfl_clients', JSON.stringify(clients));
+                saveClientsToCloud();
                 loadClients();
                 renderClientsTable();
                 updateDashboard();
@@ -775,7 +932,7 @@ function processQuote(generatePdf) {
         quotes.push(quotePayload);
     }
     
-    localStorage.setItem('cfl_quotes', JSON.stringify(quotes));
+    saveQuotesToCloud();
 
     // Handle PDF Generation
     if (generatePdf) {
@@ -784,7 +941,7 @@ function processQuote(generatePdf) {
         // If the user left it as CFL-XXXX, increment standard counter
         if (currentQuoteId === `CFL-${quoteCounter}`) {
             quoteCounter++;
-            localStorage.setItem('cfl_quote_count', quoteCounter);
+            saveCounterToCloud();
             updateQuoteIdDisplay();
         }
     } else {
@@ -935,6 +1092,7 @@ if (tmplPrimaryColor) {
 
     btnSaveTemplate.addEventListener('click', () => {
         localStorage.setItem('cfl_template_settings', JSON.stringify(templateSettings));
+        saveTemplateToCloud(templateSettings);
         alert('Template settings saved successfully!');
     });
 
