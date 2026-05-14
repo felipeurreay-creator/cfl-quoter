@@ -13,6 +13,7 @@
     <script src="libs/papaparse.min.js"></script>
     <script src="libs/chart.min.js"></script>
     <script src="libs/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
@@ -197,11 +198,11 @@
                         </div>
                     </div>
 
-                    <!-- Pallets Section -->
+                    <!-- Pallets/Containers Section -->
                     <div class="section-block">
                         <div class="section-header flex-between">
-                            <h3>2. Cargo Details (Pallets)</h3>
-                            <button type="button" class="btn btn-outline" id="btn-add-pallet">+ Add Pallet</button>
+                            <h3 id="cargo-title">2. Cargo Details (Pallets)</h3>
+                            <button type="button" class="btn btn-outline" id="btn-add-pallet">+ Add Item</button>
                         </div>
                         
                         <!-- Magic Parse Feature -->
@@ -217,11 +218,11 @@
                             <h4 style="margin-top: 0; margin-bottom: 15px; color: #e2e8f0; font-size: 0.95rem;">Shipment Information</h4>
                             <div class="form-row">
                                 <div class="form-group" style="flex: 1;">
-                                    <label>Origin (City, State, Zip)</label>
+                                    <label id="lbl-ship-from">Origin (City, State, Zip)</label>
                                     <input type="text" id="ship-from" placeholder="Ex. Mt. Pocono PA 18344">
                                 </div>
                                 <div class="form-group" style="flex: 1;">
-                                    <label>Destination (City, State, Zip)</label>
+                                    <label id="lbl-ship-to">Destination (City, State, Zip)</label>
                                     <input type="text" id="ship-to" placeholder="Ex. Laredo TX 78045">
                                 </div>
                             </div>
@@ -240,7 +241,7 @@
                         <div class="table-container">
                             <table class="data-table" id="pallets-table">
                                 <thead>
-                                    <tr>
+                                    <tr id="cargo-headers">
                                         <th>Qty</th>
                                         <th>Description</th>
                                         <th>Total Weight (lbs)</th>
@@ -250,7 +251,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="pallets-body">
-                                    <!-- Dynamic Pallet Rows -->
+                                    <!-- Dynamic Pallet/Container Rows -->
                                 </tbody>
                             </table>
                         </div>
@@ -264,8 +265,12 @@
 
                         <!-- Carrier Magic Parse Feature -->
                         <div class="magic-parse-box" style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px dashed rgba(252, 76, 2, 0.4);">
-                            <label for="carrier-parse-input" style="font-size: 0.9rem; color: #fc4c02; font-weight: bold; margin-bottom: 8px; display: block;">✨ Carrier Smart Parser (Magic Paste)</label>
-                            <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 10px;">Paste the raw text from your LTL Rating Portal (e.g., TForce, ABF, Daylight). The system will extract the carriers, sort them by price, and pick the best 3 Standard and 2 Guaranteed options.</p>
+                            <label for="carrier-parse-input" style="font-size: 0.9rem; color: #fc4c02; font-weight: bold; margin-bottom: 8px; display: block;">✨ Carrier Smart Parser (PDF/Text)</label>
+                            <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 10px;">Paste the raw text from your rating portal OR upload a PDF quote (Drayage). The system will extract linehaul, FSC, and accessorials.</p>
+                            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                                <input type="file" id="carrier-pdf-upload" accept="application/pdf" style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 6px; border-radius: 4px; flex: 1;">
+                                <span style="align-self: center; color: var(--text-muted); font-size: 0.8rem;">OR</span>
+                            </div>
                             <textarea id="carrier-parse-input" rows="3" style="width: 100%; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 10px; border-radius: 4px; margin-bottom: 10px;" placeholder="Paste carrier text here..."></textarea>
                             <button type="button" class="btn btn-secondary btn-sm" id="btn-carrier-parse" style="background: #fc4c02; border: none; color: white;">Parse & Auto-Fill Carriers</button>
                         </div>
@@ -613,6 +618,6 @@
     <script src="firebase-config.js"></script>
     <!-- App Scripts -->
     <script src="logo.js"></script>
-    <script src="app.js?v=4"></script>
+    <script src="app.js?v=5"></script>
 </body>
 </html>

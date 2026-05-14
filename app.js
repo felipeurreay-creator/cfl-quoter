@@ -161,7 +161,7 @@ function init() {
     updateQuoteIdDisplay();
     updateDashboard();
     setupEventListeners();
-    addPalletRow();
+    addCargoRow();
 
     // 2. Connect to cloud in the background (Non-blocking)
     loadInitialDataFromCloud().then(() => {
@@ -438,7 +438,7 @@ window.loadQuote = function(quoteId) {
             palletsBody.appendChild(tr);
         });
     } else {
-        addPalletRow();
+        addCargoRow();
     }
 
     // Load Carriers
@@ -591,17 +591,29 @@ function handleCSVUpload(event) {
     });
 }
 
-// Pallets Management
-function addPalletRow() {
+// Cargo Management (Pallets / Containers)
+function addCargoRow(item = null) {
+    const isDrayage = serviceTypeSelect && serviceTypeSelect.value.includes('Drayage');
     const tr = document.createElement('tr');
-    tr.innerHTML = `
-        <td><input type="number" class="p-qty" value="1" min="1" style="width: 60px;"></td>
-        <td><input type="text" class="p-desc" placeholder="Ex. Auto Parts"></td>
-        <td><input type="number" class="p-weight" placeholder="0" style="width: 80px;"></td>
-        <td><input type="text" class="p-class" placeholder="Ex. 50" style="width: 80px;"></td>
-        <td><input type="text" class="p-dims" placeholder="48x40x48"></td>
-        <td><button type="button" class="btn btn-danger btn-remove-pallet">X</button></td>
-    `;
+    
+    if (isDrayage) {
+        tr.innerHTML = `
+            <td><input type="number" class="p-qty" value="${item ? item.qty : 1}" min="1" style="width: 60px;"></td>
+            <td><input type="text" class="p-equipment" value="${item ? (item.equipment || '') : ''}" placeholder="Ex. 40' HC"></td>
+            <td><input type="text" class="p-commodity" value="${item ? (item.commodity || '') : ''}" placeholder="Ex. Machinery"></td>
+            <td colspan="2"><input type="number" class="p-weight" value="${item ? (item.weight || '') : ''}" placeholder="Gross Weight (lbs)" style="width: 100%;"></td>
+            <td><button type="button" class="btn btn-danger btn-remove-pallet">X</button></td>
+        `;
+    } else {
+        tr.innerHTML = `
+            <td><input type="number" class="p-qty" value="${item ? item.qty : 1}" min="1" style="width: 60px;"></td>
+            <td><input type="text" class="p-desc" value="${item ? (item.desc || '') : ''}" placeholder="Ex. Auto Parts"></td>
+            <td><input type="number" class="p-weight" value="${item ? (item.weight || '') : ''}" placeholder="0" style="width: 80px;"></td>
+            <td><input type="text" class="p-class" value="${item ? (item.cls || '') : ''}" placeholder="Ex. 50" style="width: 80px;"></td>
+            <td><input type="text" class="p-dims" value="${item ? (item.dims || '') : ''}" placeholder="48x40x48"></td>
+            <td><button type="button" class="btn btn-danger btn-remove-pallet">X</button></td>
+        `;
+    }
     
     tr.querySelector('.btn-remove-pallet').addEventListener('click', () => {
         tr.remove();
@@ -649,6 +661,25 @@ function handleSmartParse() {
         if (originMatch) originFound = originMatch[1].trim();
     }
 
+    // Pattern 4: Implicit block before SHIP TO / DESTINATION
+    if (!originFound) {
+        let implicitOriginMatch = rawText.match(/^([\s\S]*?)(?=\n\s*(?:SHIP TO|DESTINATION|DESTINO|DELIVERY)\s*:)/i);
+        if (implicitOriginMatch) {
+            let block = implicitOriginMatch[1].trim();
+            let csz = block.match(/([A-Za-z\s]+),?\s+([A-Z]{2})\s*,?\s*(\d{5}(?:-\d{4})?)/);
+            if (csz) {
+                originFound = csz[1].trim() + ', ' + csz[2] + ' ' + csz[3];
+            } else {
+                let lines = block.split('\n').filter(l => l.trim().length > 0);
+                if (lines.length > 1) {
+                    originFound = lines[1].trim();
+                } else if (lines.length > 0) {
+                    originFound = lines[0].trim();
+                }
+            }
+        }
+    }
+
     if (originFound && shipFrom) shipFrom.value = originFound;
 
     // ── DESTINATION / TO PARSING ───────────────────────────
@@ -674,14 +705,30 @@ function handleSmartParse() {
 
     // Pattern 3: "Destination:" or "To:"
     if (!destFound) {
-        let destMatch = rawText.match(/(?:Destination|To|Deliver\s*to)\s*:\s*(.*?)(?:\n|$)/i);
+        let destMatch = rawText.match(/(?:Destination|To|Deliver\s*to|Ship\s*to)\s*:\s*(.*?)(?:\n|$)/i);
         if (destMatch) destFound = destMatch[1].trim();
+    }
+
+    // Pattern 4: "SHIP TO:" block
+    if (!destFound) {
+        let shipToMatch = rawText.match(/SHIP\s*TO\s*:\s*([\s\S]*?)(?=\n\s*(?:REF#|P\.O\.|CONTACT|COMMODITY|Special|\n\s*\n|$))/i);
+        if (shipToMatch) {
+            let destBlock = shipToMatch[1].trim();
+            let csz = destBlock.match(/([A-Za-z\s]+),?\s+([A-Z]{2})\s*,?\s*(\d{5}(?:-\d{4})?)/);
+            if (csz) {
+                destFound = csz[1].trim() + ', ' + csz[2] + ' ' + csz[3];
+            } else {
+                destFound = destBlock.split('\n')[0].trim();
+            }
+        }
     }
 
     if (destFound && shipTo) shipTo.value = destFound;
 
+    const isDrayage = serviceTypeSelect && serviceTypeSelect.value.includes('Drayage');
+
     // ── COMMODITY PARSING ──────────────────────────────────
-    let commMatch = rawText.match(/Commodit(?:y|ies)\s*\(?s?\)?\s*:\s*([\s\S]*?)(?=\n(?:NO HAZMAT|HAZMAT|Special|Reference|\n))/i);
+    let commMatch = rawText.match(/Commodit(?:y|ies)\s*\(?s?\)?\s*:\s*([\s\S]*?)(?=\n(?:NO HAZMAT|HAZMAT|Special|Reference|Equipment|\n))/i);
     if (commMatch && shipCommodity) {
         shipCommodity.value = commMatch[1].trim().replace(/§\s*/, '');
     }
@@ -692,91 +739,122 @@ function handleSmartParse() {
         shipAccessorials.value = reqMatch[1].trim();
     }
 
-    // ── PALLET / CARGO PARSING (OPTIONAL) ──────────────────
-    const lines = rawText.split(/[\n\r·•]+/);
     let parsedItems = [];
-
-    lines.forEach(line => {
-        if (!line.trim()) return;
-        const qtyMatch = line.match(/(\d+)\s*(?:pallet|plt|skid|piece|pc|box)s?/i);
-        const dimsMatch = line.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
-        const weightMatch = line.match(/(?:@\s*)?(\d+(?:[.,]\d+)?)\s*(?:lbs|lb|pound|pds|#)/i);
-
-        if (dimsMatch && weightMatch) {
-            let qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
-            let l = parseFloat(dimsMatch[1]);
-            let w = parseFloat(dimsMatch[2]);
-            let h = parseFloat(dimsMatch[3]);
-            let weight = parseFloat(weightMatch[1].replace(',', ''));
-            const isEach = /(?:ea|each|c\/u|cada|c\/uno)\b/i.test(line.substring(weightMatch.index));
-            if (isEach && qty > 1 && weight > 0) weight = weight * qty;
-            parsedItems.push({ qty, l, w, h, weight });
-        }
-    });
-
-    // Fallback global regex for pallets
-    if (parsedItems.length === 0) {
-        const globalPattern = /(?:(?:(\d+)\s*(?:pallet|plt|skid|piece|pc|box)s?[^\d]*?)?)(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)[^\d]*?(?:@\s*)?(\d+(?:[.,]\d+)?)\s*(?:lbs|lb|pound|pds|#)/gi;
-        let match;
-        while ((match = globalPattern.exec(rawText)) !== null) {
-            let qty = match[1] ? parseInt(match[1]) : 1;
-            parsedItems.push({ qty, l: parseFloat(match[2]), w: parseFloat(match[3]), h: parseFloat(match[4]), weight: parseFloat(match[5].replace(',', '')) });
-        }
-    }
-
-    // If pallets found, populate the table
-    if (parsedItems.length > 0) {
-        palletsBody.innerHTML = '';
-        let totalWeightAll = 0, totalVolumeAllCubicFeet = 0, totalQtyAll = 0;
-
-        parsedItems.forEach((item, index) => {
-            const volumeCubicInches = (item.l * item.w * item.h) * item.qty;
-            const volumeCubicFeet = volumeCubicInches / 1728;
-            const pcf = item.weight / volumeCubicFeet;
-
-            let freightClass = "50";
-            if (pcf < 1) freightClass = "400";
-            else if (pcf < 2) freightClass = "300";
-            else if (pcf < 4) freightClass = "250";
-            else if (pcf < 6) freightClass = "150";
-            else if (pcf < 8) freightClass = "125";
-            else if (pcf < 10) freightClass = "100";
-            else if (pcf < 12) freightClass = "92.5";
-            else if (pcf < 15) freightClass = "85";
-            else if (pcf < 22.5) freightClass = "70";
-            else if (pcf < 30) freightClass = "65";
-            else if (pcf < 35) freightClass = "60";
-
-            totalWeightAll += item.weight;
-            totalVolumeAllCubicFeet += volumeCubicFeet;
-            totalQtyAll += item.qty;
-
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><input type="number" class="p-qty" value="${item.qty}" min="1" style="width: 60px;"></td>
-                <td><input type="text" class="p-desc" value="Parsed Cargo ${index+1}" placeholder="Ex. Auto Parts"></td>
-                <td><input type="number" class="p-weight" value="${item.weight}" placeholder="0" style="width: 80px;"></td>
-                <td><input type="text" class="p-class" value="${freightClass}" placeholder="Ex. 50" style="width: 80px;"></td>
-                <td><input type="text" class="p-dims" value="${item.l}x${item.w}x${item.h}" placeholder="48x40x48"></td>
-                <td><button type="button" class="btn btn-danger btn-remove-pallet">X</button></td>
-            `;
-            tr.querySelector('.btn-remove-pallet').addEventListener('click', () => tr.remove());
-            palletsBody.appendChild(tr);
-        });
-    }
-
-    // ── SUCCESS SUMMARY ────────────────────────────────────
     let summary = '✅ Smart Parser Results:\n';
     if (originFound) summary += `📍 Origin: ${originFound}\n`;
     if (destFound) summary += `📍 Destination: ${destFound}\n`;
     if (shipCommodity && shipCommodity.value) summary += `📦 Commodity: ${shipCommodity.value}\n`;
     if (shipAccessorials && shipAccessorials.value) summary += `⚙️ Accessorials: ${shipAccessorials.value}\n`;
-    if (parsedItems.length > 0) {
-        const totalQ = parsedItems.reduce((s, i) => s + i.qty, 0);
-        const totalW = parsedItems.reduce((s, i) => s + i.weight, 0);
-        summary += `🧮 Pallets: ${totalQ} units, ${totalW} lbs total\n`;
+
+    if (isDrayage) {
+        // ── EQUIPMENT / CONTAINER PARSING (DRAYAGE) ─────────────
+        let eqMatch = rawText.match(/Equipment\s*:\s*(?:(\d+)\s*[x\*]\s*)?(.*?)(?=\n|$)/i);
+        if (eqMatch) {
+            let qty = eqMatch[1] ? parseInt(eqMatch[1]) : 1;
+            let equipment = eqMatch[2].trim();
+            parsedItems.push({ qty, equipment, commodity: shipCommodity ? shipCommodity.value : '' });
+            summary += `🪝 Equipment: ${qty} x ${equipment}\n`;
+        }
+
+        if (parsedItems.length > 0) {
+            palletsBody.innerHTML = '';
+            parsedItems.forEach((item) => addCargoRow(item));
+        } else {
+            summary += `\nNo container details detected — add manually.`;
+        }
     } else {
-        summary += `\nNo pallet data detected — add pallets manually below.`;
+        // ── PALLET / CARGO PARSING (LTL/FTL) ──────────────────
+        const lines = rawText.split(/[\n\r·•]+/);
+        lines.forEach(line => {
+            if (!line.trim()) return;
+            const qtyMatch = line.match(/(\d+)(?:st|nd|rd|th)?\s*(?:pallet|plt|skid|piece|pc|box)s?/i);
+            const dimsMatch = line.match(/(\d+(?:\.\d+)?)\s*[x\*]\s*(\d+(?:\.\d+)?)\s*[x\*]\s*(\d+(?:\.\d+)?)\s*(cm|m|in|inches|in\.)?/i);
+            const weightMatch = line.match(/(?:@\s*)?(\d+(?:[.,]\d+)?)\s*(lbs|lb|pound|pds|#|kgs|kg)\b/i);
+
+            if (dimsMatch && weightMatch) {
+                let qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
+                let l = parseFloat(dimsMatch[1]);
+                let w = parseFloat(dimsMatch[2]);
+                let h = parseFloat(dimsMatch[3]);
+                let dimUnit = dimsMatch[4] ? dimsMatch[4].toLowerCase() : '';
+                
+                // Convert dims to inches if CM or M
+                if (dimUnit === 'cm') {
+                    l = l / 2.54; w = w / 2.54; h = h / 2.54;
+                } else if (dimUnit === 'm') {
+                    l = l * 39.3701; w = w * 39.3701; h = h * 39.3701;
+                }
+
+                // Round dims to 1 decimal place
+                l = Math.round(l * 10) / 10;
+                w = Math.round(w * 10) / 10;
+                h = Math.round(h * 10) / 10;
+
+                let weight = parseFloat(weightMatch[1].replace(',', ''));
+                let weightUnit = weightMatch[2].toLowerCase();
+
+                // Convert weight to lbs if KG
+                if (weightUnit === 'kg' || weightUnit === 'kgs') {
+                    weight = weight * 2.20462;
+                }
+                weight = Math.round(weight); // Round to nearest whole number
+
+                const isEach = /(?:ea|each|c\/u|cada|c\/uno)\b/i.test(line.substring(weightMatch.index));
+                if (isEach && qty > 1 && weight > 0) weight = weight * qty;
+                
+                // Calc Freight Class
+                const volFt = (l * w * h * qty) / 1728;
+                const pcf = weight / volFt;
+                let freightClass = "50";
+                if (pcf < 1) freightClass = "400"; else if (pcf < 2) freightClass = "300"; else if (pcf < 4) freightClass = "250"; else if (pcf < 6) freightClass = "150"; else if (pcf < 8) freightClass = "125"; else if (pcf < 10) freightClass = "100"; else if (pcf < 12) freightClass = "92.5"; else if (pcf < 15) freightClass = "85"; else if (pcf < 22.5) freightClass = "70"; else if (pcf < 30) freightClass = "65"; else if (pcf < 35) freightClass = "60";
+
+                parsedItems.push({ qty, desc: "Parsed Cargo", weight, cls: freightClass, dims: `${l}x${w}x${h}` });
+            }
+        });
+
+        // Fallback global regex for pallets
+        if (parsedItems.length === 0) {
+            const globalPattern = /(?:(?:(\d+)(?:st|nd|rd|th)?\s*(?:pallet|plt|skid|piece|pc|box)s?[^\d]*?)?)(\d+(?:\.\d+)?)\s*[x\*]\s*(\d+(?:\.\d+)?)\s*[x\*]\s*(\d+(?:\.\d+)?)\s*(cm|m|in|inches|in\.)?[^\d]*?(?:@\s*)?(\d+(?:[.,]\d+)?)\s*(lbs|lb|pound|pds|#|kgs|kg)\b/gi;
+            let match;
+            while ((match = globalPattern.exec(rawText)) !== null) {
+                let qty = match[1] ? parseInt(match[1]) : 1;
+                
+                let l = parseFloat(match[2]);
+                let w = parseFloat(match[3]);
+                let h = parseFloat(match[4]);
+                let dimUnit = match[5] ? match[5].toLowerCase() : '';
+                
+                if (dimUnit === 'cm') {
+                    l = l / 2.54; w = w / 2.54; h = h / 2.54;
+                } else if (dimUnit === 'm') {
+                    l = l * 39.3701; w = w * 39.3701; h = h * 39.3701;
+                }
+                
+                l = Math.round(l * 10) / 10;
+                w = Math.round(w * 10) / 10;
+                h = Math.round(h * 10) / 10;
+
+                let weight = parseFloat(match[6].replace(',', ''));
+                let weightUnit = match[7].toLowerCase();
+                if (weightUnit === 'kg' || weightUnit === 'kgs') {
+                    weight = weight * 2.20462;
+                }
+                weight = Math.round(weight);
+
+                // Use generic class 50 for fallback
+                parsedItems.push({ qty, desc: "Parsed Cargo", weight, cls: "50", dims: `${l}x${w}x${h}` });
+            }
+        }
+
+        if (parsedItems.length > 0) {
+            palletsBody.innerHTML = '';
+            parsedItems.forEach((item) => addCargoRow(item));
+            const totalQ = parsedItems.reduce((s, i) => s + i.qty, 0);
+            const totalW = parsedItems.reduce((s, i) => s + i.weight, 0);
+            summary += `🧮 Pallets: ${totalQ} units, ${totalW} lbs total\n`;
+        } else {
+            summary += `\nNo pallet data detected — add pallets manually below.`;
+        }
     }
 
     if (!originFound && !destFound && parsedItems.length === 0) {
@@ -913,7 +991,49 @@ function setupEventListeners() {
     btnImportCsv.addEventListener('click', () => csvUpload.click());
     csvUpload.addEventListener('change', handleCSVUpload);
 
-    btnAddPallet.addEventListener('click', addPalletRow);
+    btnAddPallet.addEventListener('click', () => addCargoRow());
+    
+    if (serviceTypeSelect) {
+        serviceTypeSelect.addEventListener('change', () => {
+            const isDrayage = serviceTypeSelect.value.includes('Drayage');
+            const cargoTitle = document.getElementById('cargo-title');
+            const cargoHeaders = document.getElementById('cargo-headers');
+            const btnAddPallet = document.getElementById('btn-add-pallet');
+            const lblShipFrom = document.getElementById('lbl-ship-from');
+            const lblShipTo = document.getElementById('lbl-ship-to');
+
+            if (isDrayage) {
+                if (cargoTitle) cargoTitle.textContent = "2. Equipment Details (Containers)";
+                if (btnAddPallet) btnAddPallet.textContent = "+ Add Container";
+                if (lblShipFrom) lblShipFrom.textContent = "Origin (Port/Ramp/Zip)";
+                if (lblShipTo) lblShipTo.textContent = "Destination (Port/Ramp/Zip)";
+                if (cargoHeaders) cargoHeaders.innerHTML = `
+                    <th>Qty</th>
+                    <th>Equipment (Ex. 40' HC)</th>
+                    <th>Commodity</th>
+                    <th colspan="2">Gross Weight (lbs)</th>
+                    <th>Action</th>
+                `;
+            } else {
+                if (cargoTitle) cargoTitle.textContent = "2. Cargo Details (Pallets)";
+                if (btnAddPallet) btnAddPallet.textContent = "+ Add Pallet";
+                if (lblShipFrom) lblShipFrom.textContent = "Origin (City, State, Zip)";
+                if (lblShipTo) lblShipTo.textContent = "Destination (City, State, Zip)";
+                if (cargoHeaders) cargoHeaders.innerHTML = `
+                    <th>Qty</th>
+                    <th>Description</th>
+                    <th>Total Weight (lbs)</th>
+                    <th>Class</th>
+                    <th>Dimensions (LxWxH)</th>
+                    <th>Action</th>
+                `;
+            }
+            
+            // Re-render rows to switch inputs
+            palletsBody.innerHTML = '';
+            addCargoRow();
+        });
+    }
     btnSmartParse.addEventListener('click', handleSmartParse);
     btnCarrierParse.addEventListener('click', handleCarrierParse);
     
