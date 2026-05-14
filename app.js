@@ -655,9 +655,9 @@ function handleSmartParse() {
         if (pickupInline) originFound = pickupInline[1].trim() + ', ' + pickupInline[2] + ' ' + pickupInline[3];
     }
 
-    // Pattern 3: "Origin:" or "From:"
+    // Pattern 3: "Origin:", "From:", or "Lugar de recojo:"
     if (!originFound) {
-        let originMatch = rawText.match(/(?:Origin|From|Pick\s*up(?: Location| Address)?)\s*:\s*(.*?)(?:\n|$)/i);
+        let originMatch = rawText.match(/(?:Origin|From|Pick\s*up(?: Location| Address)?|Lugar de recojo)\s*:\s*(.*?)(?:\n|$)/i);
         if (originMatch) originFound = originMatch[1].trim();
     }
 
@@ -703,9 +703,9 @@ function handleSmartParse() {
         if (deliveryInline) destFound = deliveryInline[1].trim() + ', ' + deliveryInline[2] + ' ' + deliveryInline[3];
     }
 
-    // Pattern 3: "Destination:", "To:", or "Ship to:"
+    // Pattern 3: "Destination:", "To:", "Ship to:", or "Lugar de entrega:"
     if (!destFound) {
-        let destMatch = rawText.match(/(?:Destination|To|Deliver\s*to|Ship\s*to|(?:.*?)\s*Delivery Location)\s*:\s*(.*?)(?:\n|$)/i);
+        let destMatch = rawText.match(/(?:Destination|To|Deliver\s*to|Ship\s*to|Lugar de entrega|(?:.*?)\s*Delivery Location)\s*:\s*(.*?)(?:\n|$)/i);
         if (destMatch) destFound = destMatch[1].trim();
     }
 
@@ -770,7 +770,7 @@ function handleSmartParse() {
 
         lines.forEach(line => {
             if (!line.trim()) return;
-            const qtyMatch = line.match(/(\d+)(?:st|nd|rd|th)?\s*(?:pallet|plt|skid|piece|pc|box)s?\b/i);
+            const qtyMatch = line.match(/(\d+)(?:st|nd|rd|th)?\s*(?:[a-z\-\s]*)?(?:pallet|plt|skid|piece|pc|box)s?\b/i);
             const dimsMatch = line.match(/(\d+(?:\.\d+)?)(?:”|"|'')?\s*[x\*]\s*(\d+(?:\.\d+)?)(?:”|"|'')?\s*[x\*]\s*(\d+(?:\.\d+)?)(?:”|"|'')?\s*(cm|m|in|inches|in\.)?/i);
             const weightMatch = line.match(/(?:@\s*)?(\d+(?:[.,]\d+)?)\s*(lbs|lb|pound|pds|#|kgs|kg)\b/i);
 
