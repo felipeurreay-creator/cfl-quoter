@@ -657,7 +657,7 @@ function handleSmartParse() {
 
     // Pattern 3: "Origin:" or "From:"
     if (!originFound) {
-        let originMatch = rawText.match(/(?:Origin|From)\s*:\s*(.*?)(?:\n|$)/i);
+        let originMatch = rawText.match(/(?:Origin|From|Pick\s*up(?: Location| Address)?)\s*:\s*(.*?)(?:\n|$)/i);
         if (originMatch) originFound = originMatch[1].trim();
     }
 
@@ -703,9 +703,9 @@ function handleSmartParse() {
         if (deliveryInline) destFound = deliveryInline[1].trim() + ', ' + deliveryInline[2] + ' ' + deliveryInline[3];
     }
 
-    // Pattern 3: "Destination:" or "To:"
+    // Pattern 3: "Destination:", "To:", or "Ship to:"
     if (!destFound) {
-        let destMatch = rawText.match(/(?:Destination|To|Deliver\s*to|Ship\s*to)\s*:\s*(.*?)(?:\n|$)/i);
+        let destMatch = rawText.match(/(?:Destination|To|Deliver\s*to|Ship\s*to|(?:.*?)\s*Delivery Location)\s*:\s*(.*?)(?:\n|$)/i);
         if (destMatch) destFound = destMatch[1].trim();
     }
 
@@ -765,23 +765,38 @@ function handleSmartParse() {
     } else {
         // ── PALLET / CARGO PARSING (LTL/FTL) ──────────────────
         const lines = rawText.split(/[\n\r·•]+/);
+        let currentQty = null, currentL = null, currentW = null, currentH = null, currentWeight = null, currentDimUnit = null, currentWeightUnit = null;
+        let isEach = false;
+
         lines.forEach(line => {
             if (!line.trim()) return;
-            const qtyMatch = line.match(/(\d+)(?:st|nd|rd|th)?\s*(?:pallet|plt|skid|piece|pc|box)s?/i);
-            const dimsMatch = line.match(/(\d+(?:\.\d+)?)\s*[x\*]\s*(\d+(?:\.\d+)?)\s*[x\*]\s*(\d+(?:\.\d+)?)\s*(cm|m|in|inches|in\.)?/i);
+            const qtyMatch = line.match(/(\d+)(?:st|nd|rd|th)?\s*(?:pallet|plt|skid|piece|pc|box)s?\b/i);
+            const dimsMatch = line.match(/(\d+(?:\.\d+)?)(?:”|"|'')?\s*[x\*]\s*(\d+(?:\.\d+)?)(?:”|"|'')?\s*[x\*]\s*(\d+(?:\.\d+)?)(?:”|"|'')?\s*(cm|m|in|inches|in\.)?/i);
             const weightMatch = line.match(/(?:@\s*)?(\d+(?:[.,]\d+)?)\s*(lbs|lb|pound|pds|#|kgs|kg)\b/i);
 
-            if (dimsMatch && weightMatch) {
-                let qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
-                let l = parseFloat(dimsMatch[1]);
-                let w = parseFloat(dimsMatch[2]);
-                let h = parseFloat(dimsMatch[3]);
-                let dimUnit = dimsMatch[4] ? dimsMatch[4].toLowerCase() : '';
+            if (qtyMatch) currentQty = parseInt(qtyMatch[1]);
+            if (dimsMatch) {
+                currentL = parseFloat(dimsMatch[1]);
+                currentW = parseFloat(dimsMatch[2]);
+                currentH = parseFloat(dimsMatch[3]);
+                currentDimUnit = dimsMatch[4] ? dimsMatch[4].toLowerCase() : '';
+            }
+            if (weightMatch) {
+                currentWeight = parseFloat(weightMatch[1].replace(',', ''));
+                currentWeightUnit = weightMatch[2].toLowerCase();
+                isEach = /(?:ea|each|c\/u|cada|c\/uno)\b/i.test(line.substring(weightMatch.index));
+            }
+
+            if (currentL !== null && currentWeight !== null) {
+                let qty = currentQty || 1;
+                let l = currentL;
+                let w = currentW;
+                let h = currentH;
                 
                 // Convert dims to inches if CM or M
-                if (dimUnit === 'cm') {
+                if (currentDimUnit === 'cm') {
                     l = l / 2.54; w = w / 2.54; h = h / 2.54;
-                } else if (dimUnit === 'm') {
+                } else if (currentDimUnit === 'm') {
                     l = l * 39.3701; w = w * 39.3701; h = h * 39.3701;
                 }
 
@@ -790,16 +805,12 @@ function handleSmartParse() {
                 w = Math.round(w * 10) / 10;
                 h = Math.round(h * 10) / 10;
 
-                let weight = parseFloat(weightMatch[1].replace(',', ''));
-                let weightUnit = weightMatch[2].toLowerCase();
-
-                // Convert weight to lbs if KG
-                if (weightUnit === 'kg' || weightUnit === 'kgs') {
+                let weight = currentWeight;
+                if (currentWeightUnit === 'kg' || currentWeightUnit === 'kgs') {
                     weight = weight * 2.20462;
                 }
                 weight = Math.round(weight); // Round to nearest whole number
 
-                const isEach = /(?:ea|each|c\/u|cada|c\/uno)\b/i.test(line.substring(weightMatch.index));
                 if (isEach && qty > 1 && weight > 0) weight = weight * qty;
                 
                 // Calc Freight Class
@@ -809,6 +820,9 @@ function handleSmartParse() {
                 if (pcf < 1) freightClass = "400"; else if (pcf < 2) freightClass = "300"; else if (pcf < 4) freightClass = "250"; else if (pcf < 6) freightClass = "150"; else if (pcf < 8) freightClass = "125"; else if (pcf < 10) freightClass = "100"; else if (pcf < 12) freightClass = "92.5"; else if (pcf < 15) freightClass = "85"; else if (pcf < 22.5) freightClass = "70"; else if (pcf < 30) freightClass = "65"; else if (pcf < 35) freightClass = "60";
 
                 parsedItems.push({ qty, desc: "Parsed Cargo", weight, cls: freightClass, dims: `${l}x${w}x${h}` });
+                
+                // Reset state
+                currentQty = null; currentL = null; currentW = null; currentH = null; currentWeight = null; currentDimUnit = null; currentWeightUnit = null; isEach = false;
             }
         });
 
