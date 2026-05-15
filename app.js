@@ -1028,6 +1028,17 @@ function setupEventListeners() {
                     <th colspan="2">Gross Weight (lbs)</th>
                     <th>Action</th>
                 `;
+                
+                document.querySelectorAll('.carrier-group').forEach(g => g.style.display = 'none');
+                const draySect = document.getElementById('drayage-pricing-section');
+                if(draySect) draySect.classList.remove('hidden');
+                
+                const drayDisclaimer = `*Base Rate: Includes Linehaul and FSC only. Accessorials such as Chassis Split, Pre-pulls, Redeliveries, or Terminations are not included unless specified in the line items.\n*Chassis Usage: Billed per day with a 2-day minimum rental.\n*Chassis Split Fee: If a chassis is not available at the ramp/port and requires a separate trip\n-Wait Time & Detention: * Warehouse: 2 hours free time.\n-Rail/Ramp: 1 hour free time.\n-Multi-stop: 1 hour free time at each location.\n*Terminal & Ramp Fees: Any Bad Order Flips, Mounts, or Remounts at rail ramps (e.g., CSX, NS) will be billed at a base cost per occurrence.\n*Demurrage & Per Diem: CFL is not responsible for Port Demurrage (storage) or Steamship Line Per Diem (equipment) charges. It is the client's responsibility to communicate the "Last Free Day" to avoid these costs.\n*By accepting work with Constant Flow Logistics (CFL), the customer agrees to be bound by these terms and our full service guidelines.`;
+                document.getElementById('tmpl-disclaimer').value = drayDisclaimer;
+                document.getElementById('pdf-disclaimer-text').textContent = drayDisclaimer;
+                document.getElementById('pdf-disclaimer-text').style.color = '#fc4c02';
+                templateSettings.disclaimer = drayDisclaimer;
+
             } else {
                 if (cargoTitle) cargoTitle.textContent = "2. Cargo Details (Pallets)";
                 if (btnAddPallet) btnAddPallet.textContent = "+ Add Pallet";
@@ -1041,6 +1052,15 @@ function setupEventListeners() {
                     <th>Dimensions (LxWxH)</th>
                     <th>Action</th>
                 `;
+                
+                document.querySelectorAll('.carrier-group').forEach(g => g.style.display = 'block');
+                const draySect = document.getElementById('drayage-pricing-section');
+                if(draySect) draySect.classList.add('hidden');
+                
+                document.getElementById('tmpl-disclaimer').value = defaultDisclaimer;
+                document.getElementById('pdf-disclaimer-text').textContent = defaultDisclaimer;
+                document.getElementById('pdf-disclaimer-text').style.color = '#888';
+                templateSettings.disclaimer = defaultDisclaimer;
             }
             
             // Re-render rows to switch inputs
@@ -1094,6 +1114,43 @@ function setupEventListeners() {
 
     btnGeneratePdf.addEventListener('click', () => processQuote(true));
     btnSaveQuote.addEventListener('click', () => processQuote(false));
+    
+    initDrayageAccessorials();
+}
+
+const defaultDrayageAccessorials = [
+    { name: "Chassis per day", price: "60.00" },
+    { name: "Storage per night", price: "60.00" },
+    { name: "Yard Pull / Prepull", price: "200.00" },
+    { name: "Port detention: After 2 hrs", price: "115.00" },
+    { name: "Warehouse detention: After 1 hrs", price: "115.00" },
+    { name: "TONU - Pickup attempt", price: "250.00" },
+    { name: "Overweight", price: "210.00" },
+    { name: "Stop-off", price: "175.00" },
+    { name: "Hazmat", price: "250.00" },
+    { name: "Chassis Split", price: "150.00" },
+    { name: "Triaxle per day", price: "200.00" },
+    { name: "Layover", price: "350.00" },
+    { name: "Reefer", price: "250.00" },
+    { name: "Residential Fee", price: "200.00" },
+    { name: "Tolls (per container) according to state", price: "0.00" },
+    { name: "Scale Ticket", price: "60.00" },
+    { name: "Tanker Fee", price: "200.00" }
+];
+
+function initDrayageAccessorials() {
+    const tbody = document.getElementById('drayage-acc-body');
+    if(!tbody) return;
+    tbody.innerHTML = '';
+    defaultDrayageAccessorials.forEach(acc => {
+        const tr = document.createElement('tr');
+        tr.className = "dray-acc-row";
+        tr.innerHTML = `
+            <td><input type="text" class="dray-acc-name" value="${acc.name}" style="width:100%"></td>
+            <td>$<input type="number" class="dray-acc-price" value="${acc.price}" step="0.01" style="width:80%"></td>
+        `;
+        tbody.appendChild(tr);
+    });
 }
 
 // Main processing logic (Save State & Optional PDF)
@@ -1154,6 +1211,23 @@ function processQuote(generatePdf) {
     });
 
     // Record FULL Quote in Analytics History
+    
+    // Gather Drayage Data
+    const drayageData = {
+        linehaul: document.getElementById('dray-linehaul') ? document.getElementById('dray-linehaul').value : 0,
+        chassis: document.getElementById('dray-chassis') ? document.getElementById('dray-chassis').value : 0,
+        storage: document.getElementById('dray-storage') ? document.getElementById('dray-storage').value : 0,
+        prepull: document.getElementById('dray-prepull') ? document.getElementById('dray-prepull').value : 0,
+        ctm: document.getElementById('dray-ctm') ? document.getElementById('dray-ctm').value : 30,
+        overweight: document.getElementById('dray-overweight') ? document.getElementById('dray-overweight').value : 250,
+        accessorials: []
+    };
+    document.querySelectorAll('.dray-acc-row').forEach(row => {
+        const n = row.querySelector('.dray-acc-name').value;
+        const p = row.querySelector('.dray-acc-price').value;
+        if(n) drayageData.accessorials.push({name: n, price: p});
+    });
+
     const quotePayload = {
         id: currentQuoteId,
         date: new Date().toISOString(),
@@ -1164,6 +1238,7 @@ function processQuote(generatePdf) {
         markup: currentMarkup,
         pallets: palletsDataToSave,
         carriers: carriersDataToSave,
+        drayage: drayageData,
         shipFrom: shipFrom.value,
         shipTo: shipTo.value,
         shipCommodity: shipCommodity.value,
@@ -1478,6 +1553,68 @@ function populateTemplatePreview(quoteData = null) {
     } else {
         guaranteedContainer.style.display = 'none';
     }
+
+    // Toggle Preview visibility based on DRAYAGE
+    const pdfLtl = document.getElementById('pdf-ltl-carriers');
+    const pdfDray = document.getElementById('pdf-drayage-container');
+    
+    if (currentService.includes('Drayage')) {
+        if(pdfLtl) pdfLtl.style.display = 'none';
+        if(pdfDray) pdfDray.style.display = 'block';
+        
+        let dData = quoteData ? quoteData.drayage : {
+            linehaul: document.getElementById('dray-linehaul').value,
+            chassis: document.getElementById('dray-chassis').value,
+            storage: document.getElementById('dray-storage').value,
+            prepull: document.getElementById('dray-prepull').value,
+            ctm: document.getElementById('dray-ctm').value,
+            overweight: document.getElementById('dray-overweight').value,
+            accessorials: []
+        };
+        if(!quoteData) {
+            document.querySelectorAll('.dray-acc-row').forEach(r => {
+                let n = r.querySelector('.dray-acc-name').value;
+                let p = r.querySelector('.dray-acc-price').value;
+                if(n) dData.accessorials.push({name:n, price:p});
+            });
+        }
+        
+        document.getElementById('pdf-dray-warehouse').textContent = cTo || 'Not specified';
+        document.getElementById('pdf-dray-port').textContent = cFrom || 'Not specified';
+        
+        let drayWeight = 0;
+        activePallets.forEach(p => { drayWeight += parseFloat(p.weight) || 0; });
+        document.getElementById('pdf-dray-weight').textContent = drayWeight + ' LBS';
+        
+        // Add markup
+        let m = quoteData ? quoteData.markup : currentMarkup;
+        const addMarkup = val => (parseFloat(val||0) * (1+m)).toFixed(2);
+        
+        document.getElementById('pdf-dray-linehaul').textContent = '$ ' + addMarkup(dData.linehaul);
+        document.getElementById('pdf-dray-chassis').textContent = '$ ' + addMarkup(dData.chassis);
+        document.getElementById('pdf-dray-storage').textContent = '$ ' + addMarkup(dData.storage);
+        document.getElementById('pdf-dray-prepull').textContent = '$ ' + addMarkup(dData.prepull);
+        
+        document.getElementById('pdf-dray-ctm').textContent = `We can clear CTM/CTF for a $${addMarkup(dData.ctm)} admin fee`;
+        document.getElementById('pdf-dray-overweight-lbl').textContent = `Overweight: $${addMarkup(dData.overweight)}`;
+        
+        const drayAccBody = document.getElementById('pdf-dray-accessorials-body');
+        drayAccBody.innerHTML = '';
+        if(dData.accessorials) {
+            dData.accessorials.forEach(acc => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="padding: 6px; border: 1px solid #000;">${acc.name}</td>
+                    <td style="padding: 6px; border: 1px solid #000; text-align: right;">$ ${addMarkup(acc.price)}</td>
+                `;
+                drayAccBody.appendChild(tr);
+            });
+        }
+        
+    } else {
+        if(pdfLtl) pdfLtl.style.display = 'block';
+        if(pdfDray) pdfDray.style.display = 'none';
+    }
 }
 
 // Helper: hex color to RGB array
@@ -1548,25 +1685,64 @@ function generatePDFDocument(quotePayload) {
     doc.autoTable({ startY: y, head:[['Qty','Description','Weight (lbs)','Class','Dimensions']], body: palletRows, theme:'striped', headStyles:{fillColor:navyColor, textColor:255}, styles:{fontSize:bSize}, margin:{left:mL} });
     y = doc.lastAutoTable.finalY + 10;
 
-    // Standard carriers
-    const stdRows = []; const guarRows = [];
-    quotePayload.carriers.forEach((c, i) => {
-        const price = '$' + (parseFloat(c.cost) * (1 + markup)).toFixed(2);
-        const row = [c.name||'-', c.transit||'-', c.perf||'-', price];
-        if (i < 3) stdRows.push(row); else guarRows.push(row);
-    });
+    // Standard carriers OR Drayage tables
+    if (!currentService.includes('Drayage')) {
+        const stdRows = []; const guarRows = [];
+        quotePayload.carriers.forEach((c, i) => {
+            const price = '$' + (parseFloat(c.cost) * (1 + markup)).toFixed(2);
+            const row = [c.name||'-', c.transit||'-', c.perf||'-', price];
+            if (i < 3) stdRows.push(row); else guarRows.push(row);
+        });
 
-    if (stdRows.length > 0) {
-        doc.setFontSize(bSize + 3); doc.setFont("helvetica","bold"); doc.setTextColor(navyColor[0],navyColor[1],navyColor[2]);
-        doc.text("STANDARD OPTIONS (Not Guaranteed)", mL, y); y += 3;
-        doc.autoTable({ startY: y, head:[['Carrier','Transit','Performance','Price']], body: stdRows, theme:'grid', headStyles:{fillColor:primaryColor, textColor:255}, columnStyles:{3:{fontStyle:'bold',textColor:[0,128,0]}}, styles:{fontSize:bSize}, margin:{left:mL} });
-        y = doc.lastAutoTable.finalY + 10;
-    }
-    if (guarRows.length > 0) {
-        doc.setFontSize(bSize + 3); doc.setFont("helvetica","bold"); doc.setTextColor(navyColor[0],navyColor[1],navyColor[2]);
-        doc.text("GUARANTEED OPTIONS", mL, y); y += 3;
-        doc.autoTable({ startY: y, head:[['Carrier','Transit','Performance','Price']], body: guarRows, theme:'grid', headStyles:{fillColor:navyColor, textColor:255}, columnStyles:{3:{fontStyle:'bold',textColor:[0,128,0]}}, styles:{fontSize:bSize}, margin:{left:mL} });
-        y = doc.lastAutoTable.finalY + 10;
+        if (stdRows.length > 0) {
+            doc.setFontSize(bSize + 3); doc.setFont("helvetica","bold"); doc.setTextColor(navyColor[0],navyColor[1],navyColor[2]);
+            doc.text("STANDARD OPTIONS (Not Guaranteed)", mL, y); y += 3;
+            doc.autoTable({ startY: y, head:[['Carrier','Transit','Performance','Price']], body: stdRows, theme:'grid', headStyles:{fillColor:primaryColor, textColor:255}, columnStyles:{3:{fontStyle:'bold',textColor:[0,128,0]}}, styles:{fontSize:bSize}, margin:{left:mL} });
+            y = doc.lastAutoTable.finalY + 10;
+        }
+        if (guarRows.length > 0) {
+            doc.setFontSize(bSize + 3); doc.setFont("helvetica","bold"); doc.setTextColor(navyColor[0],navyColor[1],navyColor[2]);
+            doc.text("GUARANTEED OPTIONS", mL, y); y += 3;
+            doc.autoTable({ startY: y, head:[['Carrier','Transit','Performance','Price']], body: guarRows, theme:'grid', headStyles:{fillColor:navyColor, textColor:255}, columnStyles:{3:{fontStyle:'bold',textColor:[0,128,0]}}, styles:{fontSize:bSize}, margin:{left:mL} });
+            y = doc.lastAutoTable.finalY + 10;
+        }
+    } else {
+        const dData = quotePayload.drayage;
+        const addMarkup = val => (parseFloat(val||0) * (1+markup)).toFixed(2);
+        
+        let drayWeight = 0;
+        quotePayload.pallets.forEach(p => { drayWeight += parseFloat(p.weight) || 0; });
+        
+        doc.setFontSize(bSize + 4); doc.setFont("helvetica","bold"); doc.setTextColor(255,255,255);
+        doc.setFillColor(primaryColor[0],primaryColor[1],primaryColor[2]);
+        doc.rect(mL, y, mR-mL, 8, 'F');
+        doc.text("QDRAY", mL + ((mR-mL)/2), y+5.5, { align: 'center' });
+        y += 8;
+        
+        const generalData = [
+            ["Warehouse", quotePayload.shipTo || ''],
+            ["Port", quotePayload.shipFrom || ''],
+            ["Weight", drayWeight + " LBS"]
+        ];
+        doc.autoTable({ startY: y, body: generalData, theme: 'grid', styles:{fontSize:bSize, cellPadding: 2, textColor:[0,0,0], lineColor:[0,0,0], lineWidth: 0.5}, columnStyles:{1:{fontStyle:'bold'}}, margin:{left:mL} });
+        y = doc.lastAutoTable.finalY + 5;
+        
+        const conceptData = [
+            ["Linehaul + FSC", "$ " + addMarkup(dData.linehaul)],
+            ["Chassis per day", "$ " + addMarkup(dData.chassis)],
+            ["Storage", "$ " + addMarkup(dData.storage)],
+            ["Pre-pull", "$ " + addMarkup(dData.prepull)],
+            [{content: `We can clear CTM/CTF for a $${addMarkup(dData.ctm)} admin fee`, colSpan: 2, styles: {halign: 'center', fontStyle: 'bold'}}],
+            [{content: `Overweight: $${addMarkup(dData.overweight)}`, colSpan: 2, styles: {halign: 'center', fontStyle: 'bold'}}]
+        ];
+        doc.autoTable({ startY: y, head:[['Concept','Rate']], body: conceptData, theme: 'grid', headStyles:{fillColor:primaryColor, textColor:255, lineColor:[0,0,0], lineWidth: 0.5}, styles:{fontSize:bSize, cellPadding: 2, textColor:[0,0,0], lineColor:[0,0,0], lineWidth: 0.5}, columnStyles:{1:{halign:'right', fontStyle:'bold'}}, margin:{left:mL} });
+        y = doc.lastAutoTable.finalY + 5;
+        
+        if (dData.accessorials && dData.accessorials.length > 0) {
+            const accRows = dData.accessorials.map(acc => [acc.name, "$ " + addMarkup(acc.price)]);
+            doc.autoTable({ startY: y, head:[[{content:'Accessorials, If Needed', colSpan: 2, styles:{halign:'center'}}]], body: accRows, theme: 'grid', headStyles:{fillColor:primaryColor, textColor:255, lineColor:[0,0,0], lineWidth: 0.5}, styles:{fontSize:bSize, cellPadding: 2, textColor:[0,0,0], lineColor:[0,0,0], lineWidth: 0.5}, columnStyles:{1:{halign:'right'}}, margin:{left:mL} });
+            y = doc.lastAutoTable.finalY + 5;
+        }
     }
 
     // Disclaimer
