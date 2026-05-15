@@ -593,7 +593,7 @@ function handleCSVUpload(event) {
 
 // Cargo Management (Pallets / Containers)
 function addCargoRow(item = null) {
-    const isDrayage = serviceTypeSelect && serviceTypeSelect.value.includes('Drayage');
+    const isDrayage = serviceTypeSelect && serviceTypeSelect.value.toUpperCase().includes('DRAYAGE');
     const tr = document.createElement('tr');
     
     if (isDrayage) {
@@ -725,7 +725,7 @@ function handleSmartParse() {
 
     if (destFound && shipTo) shipTo.value = destFound;
 
-    const isDrayage = serviceTypeSelect && serviceTypeSelect.value.includes('Drayage');
+    const isDrayage = serviceTypeSelect && serviceTypeSelect.value.toUpperCase().includes('DRAYAGE');
 
     // ── COMMODITY PARSING ──────────────────────────────────
     let commMatch = rawText.match(/Commodit(?:y|ies)\s*\(?s?\)?\s*:\s*([\s\S]*?)(?=\n(?:NO HAZMAT|HAZMAT|Special|Reference|Equipment|\n))/i);
@@ -1009,7 +1009,7 @@ function setupEventListeners() {
     
     if (serviceTypeSelect) {
         serviceTypeSelect.addEventListener('change', () => {
-            const isDrayage = serviceTypeSelect.value.includes('Drayage');
+            const isDrayage = serviceTypeSelect.value.toUpperCase().includes('DRAYAGE');
             const cargoTitle = document.getElementById('cargo-title');
             const cargoHeaders = document.getElementById('cargo-headers');
             const btnAddPallet = document.getElementById('btn-add-pallet');
@@ -1558,7 +1558,7 @@ function populateTemplatePreview(quoteData = null) {
     const pdfLtl = document.getElementById('pdf-ltl-carriers');
     const pdfDray = document.getElementById('pdf-drayage-container');
     
-    if (currentService.includes('Drayage')) {
+    if (currentService.toUpperCase().includes('DRAYAGE')) {
         if(pdfLtl) pdfLtl.style.display = 'none';
         if(pdfDray) pdfDray.style.display = 'block';
         
@@ -1686,7 +1686,7 @@ function generatePDFDocument(quotePayload) {
     y = doc.lastAutoTable.finalY + 10;
 
     // Standard carriers OR Drayage tables
-    if (!currentService.includes('Drayage')) {
+    if (!currentService.toUpperCase().includes('DRAYAGE')) {
         const stdRows = []; const guarRows = [];
         quotePayload.carriers.forEach((c, i) => {
             const price = '$' + (parseFloat(c.cost) * (1 + markup)).toFixed(2);
