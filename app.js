@@ -1053,9 +1053,43 @@ function setupEventListeners() {
     
     globalMarkup.addEventListener('change', calculatePrices);
     
+    const CARRIER_PERFORMANCE = {
+        "AVERITT": "Pickup: 92% / Delivery: 75%",
+        "TFORCE": "Pickup: 83% / Delivery: 75%",
+        "AAA COOPER": "Pickup: 86% / Delivery: 75%",
+        "ESTES": "Pickup: 94% / Delivery: 79%",
+        "SEFL": "Pickup: 91% / Delivery: 85%",
+        "SAIA": "Pickup: 95% / Delivery: 79%",
+        "FORWARD": "Pickup: 91% / Delivery: 87%",
+        "R+L": "Pickup: 91% / Delivery: 87%",
+        "XPO": "Pickup: 83% / Delivery: 75%",
+        "ABF": "Pickup: 87% / Delivery: 75%",
+        "2 DAY": "Pickup: 88% / Delivery: 80%",
+        "ROADRUNNER": "Pickup: 88% / Delivery: 80%",
+        "FEDEX": "Pickup: 94% / Delivery: 89%",
+        "UPS": "Pickup: 94% / Delivery: 89%",
+        "GO 2": "Pickup: 83% / Delivery: 75%",
+        "EDI EXPRESS": "Pickup: 90% / Delivery: 75%",
+        "DAYLIGHT": "Pickup: 81% / Delivery: 75%",
+        "CENTRAL TRANSPORT": "Pickup: 86% / Delivery: 75%",
+        "PITT OHIO": "Pickup: 86% / Delivery: 75%"
+    };
+
     carrierRows.forEach(row => {
         const costInput = row.querySelector('.c-cost');
         costInput.addEventListener('input', calculatePrices);
+
+        const nameInput = row.querySelector('.c-name');
+        const perfInput = row.querySelector('.c-perf');
+        nameInput.addEventListener('input', (e) => {
+            const val = e.target.value.toUpperCase();
+            for (let carrier in CARRIER_PERFORMANCE) {
+                if (val.includes(carrier)) {
+                    perfInput.value = CARRIER_PERFORMANCE[carrier];
+                    break;
+                }
+            }
+        });
     });
 
     btnGeneratePdf.addEventListener('click', () => processQuote(true));
